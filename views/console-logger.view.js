@@ -1,0 +1,20 @@
+export function printBanner(title) {
+  console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
+  console.log(`║  ${title.padEnd(57)}║`);
+  console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+}
+
+export function printResult(result) {
+  console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
+  console.log(`║  FINAL RESULT                                              ║`);
+  console.log(`╚═══════════════════════════════════════════════════════════╝`);
+  console.log(`Status : ${result.success ? "✅ SUCCESS" : "❌ FAILED"}`);
+  console.log(`Action : ${result.action || result.reason}`);
+  console.log(`Info   : ${result.message}\n`);
+}
+
+export function printProgress(current, total, name) {
+  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`📌 Lead ${current}/${total}: ${name}`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+}

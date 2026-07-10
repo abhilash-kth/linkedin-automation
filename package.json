@@ -1,0 +1,47 @@
+{
+  "name": "linkedin-automation",
+  "version": "2.0.0",
+  "description": "AI-powered LinkedIn outreach automation",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "bun server.js",
+    "dev": "bun --watch server.js",
+    "scheduler": "bun scripts/pc-scheduler.js",
+    "scheduler:pm2": "pm2 start ecosystem.config.js",
+    "login": "bun scripts/run-login.js",
+    "manual-login": "node scripts/run-manual-login.js",
+    "outreach": "node scripts/run-single.js",
+    "batch": "node scripts/run-batch.js",
+    "send": "bun scripts/run-batch.js account_1 data/leads.json --send",
+    "monitor": "bun scripts/run-inbox-monitor.js",
+    "discover": "bun scripts/run-discovery.js",
+    "ai-reply": "bun scripts/run-ai-replies.js",
+    "check-acceptance": "bun scripts/run-acceptance-check.js account_1",
+    "warming": "bun scripts/run-warming.js account_1 --send",
+    "sync-sheet": "bun scripts/run-sheet-sync.js",
+    "gh:score": "bun scripts/gh-ai-scoring.js",
+    "gh:analyze": "bun scripts/gh-ai-analysis.js",
+    "gh:sync": "bun scripts/gh-sheet-sync.js",
+    "gh:report": "bun scripts/gh-daily-report.js",
+    "gh:backup": "bun scripts/gh-mongo-backup.js",
+    "debug-buttons": "bun debug/capture-buttons.js",
+    "debug-message": "bun debug/debug-message.js"
+  },
+  "keywords": ["linkedin", "automation", "ai"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^26.1.1"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "googleapis": "^173.0.0",
+    "mongoose": "^9.7.4",
+    "node-cron": "^4.6.0",
+    "playwright": "^1.61.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

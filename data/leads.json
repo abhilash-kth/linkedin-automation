@@ -1,0 +1,13 @@
+[
+  {
+    "name": "Praveen Kumar",
+    "profileUrl": "https://www.linkedin.com/in/praveen-kumar-b78155370/",
+    "message": "Hi, I'd love to connect and discuss potential opportunities.",
+    "subject": "Quick hello",
+    "connectionNote": "Hi, I'd like to add you to my network.",
+    "status": "failed_retry",
+    "processedAt": "2026-07-10T12:16:05.749Z",
+    "lastResult": "Message failed",
+    "lastError": "composer_never_appeared"
+  }
+]
