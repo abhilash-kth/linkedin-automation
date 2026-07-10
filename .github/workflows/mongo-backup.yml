@@ -16,17 +16,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: 22
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm install
 
       - name: Backup MongoDB
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
-        run: bun scripts/gh-mongo-backup.js
+        run: node scripts/gh-mongo-backup.js
 
       - name: Upload backup as artifact
         uses: actions/upload-artifact@v4
