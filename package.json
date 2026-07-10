@@ -13,7 +13,7 @@
     "manual-login": "node scripts/run-manual-login.js",
     "outreach": "node scripts/run-single.js",
     "batch": "node scripts/run-batch.js",
-    "send": "bun scripts/run-batch.js account_1 data/leads.json --send",
+    "send": "node scripts/run-batch.js account_1 data/leads.json --send",
     "monitor": "bun scripts/run-inbox-monitor.js",
     "discover": "bun scripts/run-discovery.js",
     "ai-reply": "bun scripts/run-ai-replies.js",

@@ -1,5 +1,4 @@
 import { randomDelay } from "../../helpers/delay.helper.js";
-import SELECTORS from "../../config/selectors.js";
 
 export async function detectProfileStatus(page) {
   console.log(`🔎 Detecting profile status...`);

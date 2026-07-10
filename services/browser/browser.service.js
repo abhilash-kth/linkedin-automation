@@ -3,14 +3,13 @@ import stealth from "puppeteer-extra-plugin-stealth";
 chromium.use(stealth());
 
 import config from "../../config/config.js";
-import { initStealth } from "./stealth.service.js";
 import { mkdir } from "fs/promises";
 
 export async function launchBrowser(accountId) {
   const account = config.accounts.find((a) => a.id === accountId);
   if (!account) throw new Error(`Account "${accountId}" not found`);
 
-  const profileDir = `${config.paths.profiles}/${accountId}`;
+  const profileDir = `./profiles/${accountId}`;
   try {
     await mkdir(profileDir, { recursive: true });
   } catch {}
@@ -28,7 +27,16 @@ export async function launchBrowser(accountId) {
   });
 
   const page = context.pages()[0] || (await context.newPage());
-  await initStealth(page);
+
+  // Stealth setup
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3] });
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["en-US", "en"],
+    });
+  });
 
   return { context, page, account };
 }

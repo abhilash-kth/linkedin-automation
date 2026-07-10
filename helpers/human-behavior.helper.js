@@ -17,29 +17,6 @@ export async function humanScroll(page) {
   }
 }
 
-export async function humanType(page, selector, text) {
-  await page.waitForSelector(selector, { timeout: 15000 });
-  await page.click(selector);
-  await randomDelay(400, 800);
-
-  const words = text.split(/\s+/);
-  for (const word of words) {
-    for (const char of word) {
-      await page.keyboard.type(char, { delay: random(35, 95) });
-
-      if (Math.random() < 0.04) {
-        await page.keyboard.type(
-          String.fromCharCode(97 + ((Math.random() * 26) | 0)),
-        );
-        await randomDelay(120, 280);
-        await page.keyboard.press("Backspace");
-      }
-    }
-    await page.keyboard.type(" ");
-    await randomDelay(90, 380);
-  }
-}
-
 export async function behaveLikeHuman(page) {
   await humanScroll(page);
   await randomDelay(1400, 3200);

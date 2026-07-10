@@ -1,9 +1,10 @@
 import { humanClick, humanTypeText } from "../../helpers/human-click.helper.js";
 import { randomDelay } from "../../helpers/delay.helper.js";
 import { dismissPremiumModal } from "./premium.service.js";
+import { safeGoto } from "../browser/navigation.service.js";
 
 export async function clickMessageButton(page) {
-  console.log(`   🔎 Locating Message button...`);
+  console.log(`   🔎 Locating Message button on profile...`);
 
   let found = false;
   for (let attempt = 1; attempt <= 15; attempt++) {
@@ -19,7 +20,10 @@ export async function clickMessageButton(page) {
         return true;
       }
 
-      const allEls = [...document.querySelectorAll("button"), ...document.querySelectorAll("a")];
+      const allEls = [
+        ...document.querySelectorAll("button"),
+        ...document.querySelectorAll("a"),
+      ];
       for (const el of allEls) {
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) continue;
@@ -34,7 +38,14 @@ export async function clickMessageButton(page) {
       return false;
     });
 
-    if (found) break;
+    if (found) {
+      console.log(`   ✅ Message button tagged`);
+      break;
+    }
+
+    if (attempt % 5 === 0) {
+      console.log(`   ⏳ Still searching... ${attempt}/15s`);
+    }
   }
 
   if (!found) {
@@ -42,14 +53,13 @@ export async function clickMessageButton(page) {
     return false;
   }
 
-  // Scroll into view
+  console.log(`   📜 Scrolling into view...`);
   await page.evaluate(() => {
     const el = document.querySelector('[data-outreach-msg-btn="true"]');
     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
   });
   await randomDelay(1500, 2500);
 
-  // Get fresh coordinates after scroll
   const coords = await page.evaluate(() => {
     const el = document.querySelector('[data-outreach-msg-btn="true"]');
     if (!el) return null;
@@ -59,22 +69,22 @@ export async function clickMessageButton(page) {
 
   if (!coords) return false;
 
-  console.log(`   🖱️  Clicking Message at (${coords.x}, ${coords.y})...`);
+  console.log(`   🖱️  Clicking at (${coords.x}, ${coords.y})...`);
 
-  // Method 1: Mouse click
   await page.mouse.move(coords.x, coords.y, { steps: 10 });
-  await page.waitForTimeout(300);
-  await page.mouse.click(coords.x, coords.y, { delay: 80 });
+  await page.waitForTimeout(300 + Math.random() * 400);
+  await page.mouse.click(coords.x, coords.y, { delay: 80 + Math.random() * 100 });
   await randomDelay(2500, 4000);
 
-  // Check if composer opened
   let composerOpened = await page.evaluate(() => {
     const el = document.querySelector('.msg-form__contenteditable, [contenteditable="true"][role="textbox"]');
     return el && el.getBoundingClientRect().width > 0;
   });
 
-  // Method 2: Playwright click
+  console.log(`   📊 After mouse click: composer opened = ${composerOpened}`);
+
   if (!composerOpened) {
+    console.log(`   🔄 Trying Playwright locator click...`);
     try {
       await page.locator('[data-outreach-msg-btn="true"]').first().click({ force: true, timeout: 5000 });
       await randomDelay(2500, 4000);
@@ -82,10 +92,61 @@ export async function clickMessageButton(page) {
         const el = document.querySelector('.msg-form__contenteditable, [contenteditable="true"][role="textbox"]');
         return el && el.getBoundingClientRect().width > 0;
       });
-    } catch {}
+      console.log(`   📊 After locator click: composer opened = ${composerOpened}`);
+    } catch (err) {
+      console.log(`   ⚠️  Locator click failed: ${err.message}`);
+    }
   }
 
-  console.log(`   📊 Composer opened: ${composerOpened}`);
+  if (!composerOpened) {
+    console.log(`   🔄 Trying dispatchEvent...`);
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-outreach-msg-btn="true"]');
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const x = rect.x + rect.width / 2;
+        const y = rect.y + rect.height / 2;
+        ["mousedown", "mouseup", "click"].forEach((type) => {
+          el.dispatchEvent(new MouseEvent(type, {
+            view: window, bubbles: true, cancelable: true,
+            clientX: x, clientY: y, button: 0,
+          }));
+        });
+      }
+    });
+    await randomDelay(2500, 4000);
+
+    composerOpened = await page.evaluate(() => {
+      const el = document.querySelector('.msg-form__contenteditable, [contenteditable="true"][role="textbox"]');
+      return el && el.getBoundingClientRect().width > 0;
+    });
+    console.log(`   📊 After dispatchEvent: composer opened = ${composerOpened}`);
+  }
+
+  if (!composerOpened) {
+    console.log(`   🔄 Navigating to messaging URL...`);
+    const messagingUrl = await page.evaluate(() => {
+      const el = document.querySelector('[data-outreach-msg-btn="true"]');
+      if (!el) return null;
+      if (el.tagName === "A" && el.getAttribute("href")) return el.getAttribute("href");
+      let current = el;
+      for (let i = 0; i < 5; i++) {
+        if (current.parentElement) {
+          current = current.parentElement;
+          if (current.tagName === "A" && current.getAttribute("href")) return current.getAttribute("href");
+        } else break;
+      }
+      return null;
+    });
+
+    if (messagingUrl) {
+      const fullUrl = messagingUrl.startsWith("/") ? "https://www.linkedin.com" + messagingUrl : messagingUrl;
+      console.log(`   🔗 Navigating to: ${fullUrl}`);
+      await safeGoto(page, fullUrl);
+      await randomDelay(3000, 5000);
+    }
+  }
+
   return true;
 }
 
@@ -103,14 +164,29 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
     }
 
     composerInfo = await page.evaluate(() => {
-      const selectors = [
-        ".msg-form__contenteditable",
+      const primary = document.querySelector(".msg-form__contenteditable");
+      if (primary) {
+        const rect = primary.getBoundingClientRect();
+        if (rect.width > 30 && rect.height > 15) {
+          return {
+            found: true,
+            selector: ".msg-form__contenteditable",
+            x: Math.floor(rect.x + rect.width / 2),
+            y: Math.floor(rect.y + rect.height / 2),
+            w: Math.floor(rect.width),
+            h: Math.floor(rect.height),
+            hasSubject: !!document.querySelector('input.msg-form__subject, input[name="subject"]'),
+          };
+        }
+      }
+
+      const fallbacks = [
         '[contenteditable="true"][role="textbox"]',
-        'div[contenteditable="true"][aria-label*="Write" i]',
         'div[contenteditable="true"][aria-label*="message" i]',
+        'div[contenteditable="true"][aria-label*="Write" i]',
       ];
 
-      for (const sel of selectors) {
+      for (const sel of fallbacks) {
         const els = document.querySelectorAll(sel);
         for (const el of els) {
           const rect = el.getBoundingClientRect();
@@ -132,6 +208,7 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
 
     if (composerInfo.found) {
       console.log(`   ✅ Composer ready after ${attempt}s (${composerInfo.w}x${composerInfo.h})`);
+      console.log(`   📝 Has subject: ${composerInfo.hasSubject}`);
       composerReady = true;
       break;
     }
@@ -139,7 +216,7 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
     if (attempt % 5 === 0) {
       console.log(`   ⏳ Still waiting... ${attempt}/25s`);
       try {
-        await page.screenshot({ path: `./debug/screenshots/composer-${attempt}.png`, fullPage: false });
+        await page.screenshot({ path: `./profiles/${accountId}/debug-composer-${attempt}.png` });
       } catch {}
     }
   }
@@ -165,13 +242,23 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
     await page.keyboard.press("Delete");
     await humanTypeText(page, subject);
     await randomDelay(800, 1500);
+    console.log(`   ✅ Subject filled`);
   }
 
-  // Click textbox
-  await page.mouse.move(composerInfo.x, composerInfo.y, { steps: 8 });
-  await page.waitForTimeout(200);
-  await page.mouse.click(composerInfo.x, composerInfo.y, { delay: 80 });
+  // Click composer
+  console.log(`   🖱️  Clicking composer...`);
+  await humanClick(page, composerInfo.x, composerInfo.y);
   await randomDelay(800, 1500);
+
+  await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el) { el.focus(); el.click(); }
+  }, composerInfo.selector);
+  await randomDelay(400, 800);
+
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Delete");
+  await randomDelay(300, 600);
 
   await page.evaluate((sel) => {
     const el = document.querySelector(sel);
@@ -187,22 +274,38 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
   }, composerInfo.selector);
   await randomDelay(400, 800);
 
-  // Clear and type
-  await page.keyboard.press("Control+a");
-  await page.keyboard.press("Delete");
-  await randomDelay(300, 600);
-
   console.log(`   ⌨️  Typing message (${messageText.length} chars)...`);
   await humanTypeText(page, messageText);
   await randomDelay(1500, 2500);
-  console.log(`   ✅ Message typed`);
 
-  // Find send button
+  const typedContent = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    return el ? (el.textContent || "").trim().length : 0;
+  }, composerInfo.selector);
+
+  console.log(`   📊 Chars typed: ${typedContent}`);
+
+  if (typedContent === 0) {
+    console.log(`   ⚠️  JS insertText fallback...`);
+    await page.evaluate((data) => {
+      const el = document.querySelector(data.sel);
+      if (!el) return;
+      el.focus();
+      try { document.execCommand("insertText", false, data.text); } catch {}
+      if ((el.textContent || "").trim().length === 0) {
+        el.innerHTML = `<p>${data.text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }, { sel: composerInfo.selector, text: messageText });
+    await randomDelay(1000, 1500);
+  }
+
+  console.log(`   ✅ Message in composer`);
+
   const sendState = await page.evaluate(() => {
     const sels = [
       "button.msg-form__send-btn",
       "button.msg-form__send-button",
-      'button[type="submit"].msg-form__send-btn',
       'button[aria-label="Send message"]',
     ];
     for (const sel of sels) {
@@ -211,8 +314,7 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
         const rect = btn.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
           return {
-            exists: true,
-            selector: sel,
+            exists: true, selector: sel,
             disabled: btn.hasAttribute("disabled"),
             x: Math.floor(rect.x + rect.width / 2),
             y: Math.floor(rect.y + rect.height / 2),
@@ -222,6 +324,8 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
     }
     return { exists: false };
   });
+
+  console.log(`   📊 Send btn: exists=${sendState.exists}, disabled=${sendState.disabled}`);
 
   if (actuallySend) {
     if (!sendState.exists) return { success: false, reason: "send_button_missing" };
@@ -233,11 +337,12 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
       }, composerInfo.selector);
       await page.keyboard.press("End");
       await page.keyboard.type(" ");
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(400);
       await page.keyboard.press("Backspace");
       await page.waitForTimeout(800);
     }
 
+    console.log(`   🖱️  Clicking send...`);
     await humanClick(page, sendState.x, sendState.y);
     await randomDelay(3000, 5000);
 
@@ -253,7 +358,7 @@ export async function sendMessageViaComposer(page, messageText, subject, actuall
   }
 }
 
-export async function attemptSendMessage(page, messageText, subject, actuallySend, accountId) {
+export async function attemptSendMessage(page, messageText, subject, actuallySend, accountId = "debug") {
   console.log(`\n💬 Attempting to send message...`);
 
   const clicked = await clickMessageButton(page);

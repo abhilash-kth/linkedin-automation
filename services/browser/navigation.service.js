@@ -1,5 +1,9 @@
 import { randomDelay, random } from "../../helpers/delay.helper.js";
-import { humanMove } from "../../helpers/human-click.helper.js";
+
+async function humanMove(page, x, y) {
+  const steps = 8 + Math.floor(Math.random() * 7);
+  await page.mouse.move(x, y, { steps });
+}
 
 export async function safeGoto(page, url, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -29,7 +33,8 @@ export async function humanRefreshPage(page) {
     await randomDelay(4000, 6000);
     console.log(`   ✅ Page refreshed`);
     return true;
-  } catch {
+  } catch (err) {
+    console.log(`   ⚠️  Reload failed: ${err.message}`);
     return false;
   }
 }
