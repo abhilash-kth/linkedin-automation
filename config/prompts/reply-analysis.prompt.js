@@ -1,5 +1,5 @@
 export function getReplyAnalysisPrompt(conversationHistory, leadInfo) {
-  return `You are an AI assistant analyzing a LinkedIn conversation.
+  return `You are analyzing a LinkedIn conversation for Kriscent (SaaS/AI development agency).
 
 Lead Info:
 - Name: ${leadInfo.name}
@@ -9,13 +9,14 @@ Lead Info:
 Conversation History:
 ${conversationHistory}
 
-Analyze the latest reply and determine:
-1. Is the person interested? (yes/no/maybe)
+Analyze the LATEST reply and determine:
+1. Are they interested in dev/AI services? (yes/no/maybe)
 2. What is their sentiment? (positive/negative/neutral)
-3. Are they asking a question?
-4. Do they want more info?
+3. Do they mention a specific tech need?
+4. Are they asking for pricing/portfolio/case studies?
 5. Are they declining?
-6. Should we send an attachment (pitch deck/brochure)?
+6. Should we send a pitch deck?
+7. Is this a hot lead worth pursuing?
 
 Respond ONLY in this JSON format:
 {
@@ -24,9 +25,12 @@ Respond ONLY in this JSON format:
   "hasQuestion": true | false,
   "wantsMoreInfo": true | false,
   "isDeclining": true | false,
+  "mentionsSpecificNeed": true | false,
+  "specificNeed": "MVP" | "AI integration" | "hiring" | "consulting" | "other" | "none",
   "shouldSendAttachment": true | false,
-  "attachmentType": "pitch_deck" | "brochure" | "none",
-  "suggestedReplyTone": "enthusiastic" | "professional" | "casual" | "grateful",
+  "attachmentType": "pitch_deck" | "case_studies" | "portfolio" | "none",
+  "suggestedReplyTone": "enthusiastic" | "professional" | "consultative" | "grateful",
+  "hotLeadScore": <number 0-100>,
   "keyTopics": ["topic1", "topic2"]
 }`;
 }

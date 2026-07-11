@@ -97,7 +97,7 @@ const leadSchema = new mongoose.Schema(
 );
 
 // Indexes
-leadSchema.index({ profileUrl: 1 }, { unique: true });
+
 leadSchema.index({ status: 1 });
 leadSchema.index({ accountId: 1, status: 1 });
 leadSchema.index({ conversionScore: -1 });

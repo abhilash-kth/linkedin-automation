@@ -1,7 +1,17 @@
 [
-  "beauty salon AI",
-  "salon management software",
-  "wellness startup founder",
-  "beauty tech investor",
-  "salon business owner"
+  { "keyword": "hiring developer startup", "category": "hiring" },
+  { "keyword": "need MVP fast", "category": "mvp" },
+  { "keyword": "AI development services", "category": "ai_services" },
+  { "keyword": "hiring React developer", "category": "hiring" },
+  { "keyword": "building SaaS product", "category": "saas" },
+  { "keyword": "AI agents for business", "category": "ai_services" },
+  { "keyword": "custom software agency", "category": "custom_dev" },
+  { "keyword": "technical co-founder needed", "category": "partnership" },
+  { "keyword": "AI product development", "category": "ai_services" },
+  { "keyword": "hiring full stack developer", "category": "hiring" },
+  { "keyword": "startup MVP builder", "category": "mvp" },
+  { "keyword": "AI chatbot for business", "category": "ai_services" },
+  { "keyword": "web development agency India", "category": "agency" },
+  { "keyword": "hire Node.js developer", "category": "hiring" },
+  { "keyword": "AI automation business", "category": "automation" }
 ]

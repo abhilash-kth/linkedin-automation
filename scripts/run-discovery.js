@@ -1,21 +1,17 @@
 import { discoverLeads } from "../controllers/discovery.controller.js";
-import { readFile } from "fs/promises";
 
 const args = process.argv.slice(2);
 if (args.length < 1) {
-  console.error("❌ Usage: node scripts/run-discovery.js <accountId> [keywordsFile]");
+  console.error("❌ Usage: bun scripts/run-discovery.js <accountId> [--comment]");
+  console.error("   Example: bun scripts/run-discovery.js account_1");
+  console.error("   With real commenting: bun scripts/run-discovery.js account_1 --comment");
   process.exit(1);
 }
 
 const accountId = args[0];
-const keywordsFile = args[1] || "./data/keywords.json";
+const actuallyComment = args.includes("--comment");
 
-let keywords;
-try {
-  const data = await readFile(keywordsFile, "utf-8");
-  keywords = JSON.parse(data);
-} catch {
-  keywords = ["beauty salon AI", "salon management software", "wellness startup founder"];
-}
-
-discoverLeads(accountId, keywords, 2);
+discoverLeads(accountId, actuallyComment).catch((err) => {
+  console.error(`❌ Fatal: ${err.message}`);
+  process.exit(1);
+});

@@ -17,17 +17,66 @@ export async function callAI(prompt, options = {}) {
   throw new Error(`Unknown AI provider: ${provider}`);
 }
 
-async function callOpenRouter(prompt, maxTokens, temperature) {
+// async function callOpenRouter(prompt, maxTokens, temperature) {
 
+//   const config = aiConfig.openrouter;
+//     console.log("Base URL:", config.baseUrl);
+// console.log("Model:", config.model);
+// console.log("Provider:", aiConfig.activeProvider);
+
+//   if (!config.apiKey) {
+//     console.log(`   ⚠️  OpenRouter API key not set — returning mock response`);
+//     return { text: "", success: false, reason: "no_api_key" };
+//   }
+
+//   try {
+//     const response = await fetch(`${config.baseUrl}/chat/completions`, {
+//       method: "POST",
+//       headers: {
+//         Authorization: `Bearer ${config.apiKey}`,
+//         "Content-Type": "application/json",
+//         "HTTP-Referer": "https://linkedin-automation.local",
+//         "X-Title": "LinkedIn Automation",
+//       },
+//       body: JSON.stringify({
+//         model: config.model,
+//         messages: [{ role: "user", content: prompt }],
+//         max_tokens: maxTokens,
+//         temperature,
+//       }),
+//     });
+
+//     if (!response.ok) {
+//       const errText = await response.text();
+//       throw new Error(`OpenRouter API error ${response.status}: ${errText}`);
+//     }
+
+//     const data = await response.json();
+//     const text = data.choices?.[0]?.message?.content || "";
+
+//     return {
+//       text,
+//       success: true,
+//       model: config.model,
+//       tokensUsed: data.usage?.total_tokens || 0,
+//     };
+//   } catch (err) {
+//     console.log(`   ❌ AI call failed: ${err.message}`);
+//     return { text: "", success: false, reason: err.message };
+//   }
+// }
+
+async function callOpenRouter(prompt, maxTokens, temperature) {
   const config = aiConfig.openrouter;
-    console.log("Base URL:", config.baseUrl);
-console.log("Model:", config.model);
-console.log("Provider:", aiConfig.activeProvider);
 
   if (!config.apiKey) {
-    console.log(`   ⚠️  OpenRouter API key not set — returning mock response`);
+    console.log(`   ⚠️  OpenRouter API key not set`);
     return { text: "", success: false, reason: "no_api_key" };
   }
+
+  console.log(`Base URL: ${config.baseUrl}`);
+  console.log(`Model: ${config.model}`);
+  console.log(`Provider: openrouter`);
 
   try {
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
@@ -35,33 +84,46 @@ console.log("Provider:", aiConfig.activeProvider);
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://linkedin-automation.local",
-        "X-Title": "LinkedIn Automation",
+        "HTTP-Referer": "https://kriscent.com",
+        "X-Title": "Kriscent LinkedIn Automation",
       },
       body: JSON.stringify({
         model: config.model,
         messages: [{ role: "user", content: prompt }],
         max_tokens: maxTokens,
-        temperature,
+        temperature: temperature,
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`OpenRouter API error ${response.status}: ${errText}`);
+      console.log(`   ⚠️  OpenRouter API error ${response.status}: ${errText.substring(0, 200)}`);
+      return { text: "", success: false, reason: `api_error_${response.status}` };
     }
 
     const data = await response.json();
-    const text = data.choices?.[0]?.message?.content || "";
+
+    // Debug log
+    if (!data.choices || data.choices.length === 0) {
+      console.log(`   ⚠️  No choices in response: ${JSON.stringify(data).substring(0, 200)}`);
+      return { text: "", success: false, reason: "no_choices" };
+    }
+
+    const text = data.choices[0]?.message?.content || "";
+
+    if (!text || text.trim().length === 0) {
+      console.log(`   ⚠️  Empty text in response`);
+      return { text: "", success: false, reason: "empty_response" };
+    }
 
     return {
-      text,
+      text: text.trim(),
       success: true,
       model: config.model,
       tokensUsed: data.usage?.total_tokens || 0,
     };
   } catch (err) {
-    console.log(`   ❌ AI call failed: ${err.message}`);
+    console.log(`   ❌ AI call exception: ${err.message}`);
     return { text: "", success: false, reason: err.message };
   }
 }
