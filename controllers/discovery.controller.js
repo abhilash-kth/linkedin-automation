@@ -1,21 +1,15 @@
 import { launchBrowser, closeBrowser } from "../services/browser/browser.service.js";
 import { checkSession } from "../services/browser/session.service.js";
-import { safeGoto, closeMessagingOverlays } from "../services/browser/navigation.service.js";
 import {
   searchPostsByKeyword,
-  expandPost,
+  scrollToAndExpandPost,
 } from "../services/linkedin/post-scraper.service.js";
 import {
   copyPostLink,
   commentOnPost,
 } from "../services/linkedin/post-commenter.service.js";
-import { extractContactInfo } from "../services/linkedin/contact-info.service.js";
-import {
-  generateEmbedding,
-  cosineSimilarity,
-  scoreToPercent,
-  loadEmbedder,
-} from "../services/ai/embedding.service.js";
+import { loadEmbedder } from "../services/ai/embedding.service.js";
+import { classifyPost } from "../services/ai/lead-classifier.service.js";
 import {
   generateComment,
   canComment,
@@ -23,281 +17,249 @@ import {
   getRemainingComments,
 } from "../services/ai/comment-generator.service.js";
 import { getAllKeywordVectors } from "../services/database/vector-db.service.js";
-import { upsertLead } from "../services/database/lead-db.service.js";
+import { getAllRequirementEmbeddings } from "../services/database/requirement-db.service.js";
+import {
+  upsertLead,
+  hasCommentedOnPost,
+  shouldSkipLead,
+} from "../services/database/lead-db.service.js";
 import { appendToSheet } from "../services/integrations/google-sheets.service.js";
-import { behaveLikeHuman, randomDelay } from "../helpers/human-behavior.helper.js";
+import { randomDelay } from "../helpers/human-behavior.helper.js";
 
-const SIMILARITY_THRESHOLD = 0.50;
+const SIMILARITY_THRESHOLD_PERCENT = 55; // 55% top match required
+const MIN_DAYS_BETWEEN_LEAD_ACTIONS = 7;
 
-/**
- * Complete discovery flow:
- * 1. Search posts by keyword
- * 2. Score posts using vector similarity
- * 3. Comment on high-scoring posts (navigates to full post page)
- * 4. Navigate BACK to search after each post
- * 5. Extract contact info from profile
- * 6. Save to MongoDB + Google Sheets
- */
 export async function discoverLeads(accountId, actuallyComment = false) {
   console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
-  console.log(`║  VECTOR-BASED LEAD DISCOVERY                               ║`);
+  console.log(`║  DISCOVERY (v4 - Multi-Embedding Classification)           ║`);
   console.log(`║  Account: ${accountId.padEnd(48)}║`);
-  console.log(`║  Threshold: ${(SIMILARITY_THRESHOLD * 100).toFixed(0)}%                                             ║`);
-  console.log(`║  Comment mode: ${(actuallyComment ? "REAL" : "SAFE (typed only)").padEnd(43)}║`);
+  console.log(`║  Threshold: ${String(SIMILARITY_THRESHOLD_PERCENT).padEnd(3)}% top match                                    ║`);
+  console.log(`║  Mode: ${(actuallyComment ? "REAL COMMENTS" : "SAFE (typed only)").padEnd(51)}║`);
   console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
 
-  // Preload Xenova model
   console.log(`🧠 Preloading Xenova model...`);
   await loadEmbedder();
 
-  // Get keywords from DB
-  console.log(`\n📚 Loading keyword vectors from DB...`);
+  console.log(`\n📚 Loading discovery keywords...`);
   const keywordVectors = await getAllKeywordVectors();
-
   if (keywordVectors.length === 0) {
-    console.log(`\n❌ No keywords in DB. Run: bun run embed-keywords\n`);
+    console.log(`\n❌ No keywords. Run: node scripts/embed-keywords.js\n`);
     return;
   }
+  console.log(`✅ ${keywordVectors.length} keywords loaded`);
 
-  console.log(`✅ Loaded ${keywordVectors.length} keyword vectors`);
-  keywordVectors.forEach((k, i) => console.log(`   ${i + 1}. ${k.keyword}`));
+  console.log(`\n🎯 Loading requirement embeddings (ideal customer profiles)...`);
+  const requirementEmbeddings = await getAllRequirementEmbeddings();
+  if (requirementEmbeddings.length === 0) {
+    console.log(`\n❌ No requirements. Run: node scripts/embed-requirements.js\n`);
+    return;
+  }
+  console.log(`✅ ${requirementEmbeddings.length} requirement embeddings loaded`);
+  requirementEmbeddings.forEach((r, i) => {
+    console.log(`   ${i + 1}. ${r.label}`);
+  });
+  console.log(``);
 
   const { context, page } = await launchBrowser(accountId);
 
-  let totalPostsScanned = 0;
-  let totalHighScorePosts = 0;
-  let totalCommented = 0;
-  let totalLeadsSaved = 0;
+  const stats = {
+    postsScanned: 0,
+    highScorePosts: 0,
+    skippedAlreadyCommented: 0,
+    skippedDuplicate: 0,
+    newComments: 0,
+    leadsSaved: 0,
+    scoreDistribution: { hot: 0, warm: 0, cold: 0 },
+  };
 
   try {
     if (!(await checkSession(page))) {
-      console.log(`\n❌ Session expired. Run: bun run manual-login ${accountId}`);
+      console.log(`\n❌ Session expired\n`);
       await closeBrowser(context);
       return;
     }
 
-    // Loop through each keyword
     for (let kIdx = 0; kIdx < keywordVectors.length; kIdx++) {
       const kw = keywordVectors[kIdx];
+
       console.log(`\n${"═".repeat(63)}`);
       console.log(`🔑 KEYWORD ${kIdx + 1}/${keywordVectors.length}: "${kw.keyword}"`);
       console.log("═".repeat(63));
 
-      // Check daily comment limit
       if (!canComment()) {
-        console.log(`\n⛔ Daily comment limit reached (20/day). Stopping.\n`);
+        console.log(`\n⛔ Daily comment limit reached\n`);
         break;
       }
       console.log(`💬 Comments remaining today: ${getRemainingComments()}\n`);
 
-      // Search posts
       const posts = await searchPostsByKeyword(page, kw.keyword);
-      totalPostsScanned += posts.length;
+      stats.postsScanned += posts.length;
 
       if (posts.length === 0) {
         console.log(`   ⚠️  No posts found\n`);
         continue;
       }
 
-      // Score each post
-      console.log(`\n📊 Scoring ${posts.length} posts...\n`);
-      const scoredPosts = [];
-
-      for (let i = 0; i < posts.length; i++) {
-        const post = posts[i];
-
-        // Try to expand post first (for full content)
-        let fullContent = post.content;
-        if (post.hasExpandButton) {
-          const expanded = await expandPost(page, post.index);
-          if (expanded) fullContent = expanded;
-        }
-
-        // Generate embedding
-        const postVector = await generateEmbedding(fullContent);
-        if (!postVector) continue;
-
-        // Calculate similarity
-        const score = cosineSimilarity(kw.vector, postVector);
-        const scorePercent = scoreToPercent(score);
-
-        scoredPosts.push({ ...post, content: fullContent, score, scorePercent });
-
-        const icon = score >= SIMILARITY_THRESHOLD ? "✅" : "❌";
-        console.log(`   ${icon} [${scorePercent}%] ${post.authorName.substring(0, 25).padEnd(25)} | ${fullContent.substring(0, 50).replace(/\n/g, " ")}...`);
-      }
-
-      // Filter to high-scoring posts
-      const highScorePosts = scoredPosts.filter((p) => p.score >= SIMILARITY_THRESHOLD);
-      totalHighScorePosts += highScorePosts.length;
-
-      console.log(`\n🎯 High-scoring posts: ${highScorePosts.length}/${scoredPosts.length}`);
-
-      if (highScorePosts.length === 0) {
-        console.log(`   ℹ️  No posts above ${SIMILARITY_THRESHOLD * 100}% threshold\n`);
-        continue;
-      }
-
-      // Process each high-scoring post
-      for (let pIdx = 0; pIdx < highScorePosts.length; pIdx++) {
-        // Check comment limit before each
+      for (let pIdx = 0; pIdx < posts.length; pIdx++) {
         if (!canComment()) {
-          console.log(`\n⛔ Daily comment limit reached during processing\n`);
+          console.log(`\n⛔ Daily limit reached\n`);
           break;
         }
 
-        const post = highScorePosts[pIdx];
+        const post = posts[pIdx];
         console.log(`\n${"─".repeat(63)}`);
-        console.log(`📌 [${pIdx + 1}/${highScorePosts.length}] ${post.authorName} (${post.scorePercent}%)`);
+        console.log(`📌 POST ${pIdx + 1}/${posts.length}: ${post.authorName}`);
         console.log("─".repeat(63));
 
         try {
-          // ═══════════════════════════════════════════════════════════
-          // STEP 0: If we already navigated away, go back to search results
-          // ═══════════════════════════════════════════════════════════
-          const currentUrl = page.url();
-          if (!currentUrl.includes("/search/results/content/")) {
-            console.log(`   🔄 Navigating back to search results...`);
-            const searchUrl = `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(kw.keyword)}`;
-            await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-            await randomDelay(4000, 6000);
-
-            // Scroll down to reload posts
-            console.log(`   📜 Scrolling to reload posts...`);
-            for (let i = 0; i < 4; i++) {
-              await page.evaluate(() => window.scrollBy(0, 600));
-              await randomDelay(1500, 2500);
-            }
-
-            // Re-tag posts with data-post-index since we reloaded
-            await page.evaluate(() => {
-              const containers = document.querySelectorAll('[role="listitem"]');
-              containers.forEach((container, idx) => {
-                container.setAttribute("data-post-index", String(idx));
-              });
-            });
-            await randomDelay(1500, 2500);
-
-            // Find the current post's new index by matching author URL
-            const newIndex = await page.evaluate((authorUrl) => {
-              const containers = document.querySelectorAll('[data-post-index]');
-              for (const container of containers) {
-                const link = container.querySelector('a[href*="/in/"]');
-                if (link) {
-                  const href = link.getAttribute("href").split("?")[0];
-                  const fullUrl = href.startsWith("http") ? href : "https://www.linkedin.com" + href;
-                  if (fullUrl === authorUrl || authorUrl.includes(href)) {
-                    return parseInt(container.getAttribute("data-post-index"));
-                  }
-                }
-              }
-              return null;
-            }, post.authorProfileUrl);
-
-            if (newIndex !== null && newIndex !== undefined) {
-              console.log(`   ✅ Re-found post at new index: ${newIndex}`);
-              post.index = newIndex;
-            } else {
-              console.log(`   ⚠️  Couldn't re-find post on search page`);
-            }
-          }
-
-          // ═══════════════════════════════════════════════════════════
-          // STEP 1: Copy post link (from search page)
-          // ═══════════════════════════════════════════════════════════
-          const postUrl = await copyPostLink(page, post.index);
-
-          // ═══════════════════════════════════════════════════════════
-          // STEP 2: Generate AI comment
-          // ═══════════════════════════════════════════════════════════
-          const commentText = await generateComment(post.content, post.authorName);
-          if (!commentText) {
-            console.log(`   ⚠️  Skipping — couldn't generate comment`);
+          if (
+            post.authorProfileUrl.includes("/me") ||
+            post.authorProfileUrl.includes("/mynetwork")
+          ) {
+            console.log(`   ⏭️  Own profile — skip`);
             continue;
           }
 
-          // ═══════════════════════════════════════════════════════════
-          // STEP 3: Post the comment (navigates to full post page)
-          // ═══════════════════════════════════════════════════════════
-          const commentResult = await commentOnPost(page, post.index, commentText, actuallyComment, postUrl);
-          if (commentResult.success && actuallyComment) {
-            incrementCommentCount();
-            totalCommented++;
+          // ── 1. Expand + read post ──
+          const fullContent = await scrollToAndExpandPost(page, post.index);
+          const contentToScore = fullContent || post.content;
+
+          if (!contentToScore || contentToScore.length < 30) {
+            console.log(`   ⚠️  Content too short — skipping`);
+            continue;
           }
 
-          // ═══════════════════════════════════════════════════════════
-          // STEP 4: Visit profile & extract contact info
-          // ═══════════════════════════════════════════════════════════
-          console.log(`\n   👤 Visiting profile: ${post.authorProfileUrl}`);
-          await randomDelay(3000, 5000);
+          // ── 2. Multi-embedding classification ──
+          const classification = await classifyPost(contentToScore, requirementEmbeddings);
 
-          const contactInfo = await extractContactInfo(page, post.authorProfileUrl);
+          console.log(`   📊 Classification:`);
+          classification.topMatches.forEach((m, i) => {
+            const badge = i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉";
+            console.log(`      ${badge} ${m.label}: ${m.score}%`);
+          });
 
-          // ═══════════════════════════════════════════════════════════
-          // STEP 5: Save to MongoDB
-          // ═══════════════════════════════════════════════════════════
+          const topScore = classification.topScore;
+
+          if (topScore < SIMILARITY_THRESHOLD_PERCENT) {
+            console.log(`   ⏭️  Top score ${topScore}% < ${SIMILARITY_THRESHOLD_PERCENT}% — skip`);
+            await randomDelay(2000, 4000);
+            continue;
+          }
+
+          console.log(`   ✅ MATCH — ${classification.topLabel} @ ${topScore}%`);
+          stats.highScorePosts++;
+
+          // Category
+          const category =
+            topScore >= 75 ? "hot" :
+            topScore >= 65 ? "warm" : "cold";
+          stats.scoreDistribution[category]++;
+
+          // ── 3. Duplicate lead check ──
+          if (await shouldSkipLead(post.authorProfileUrl, MIN_DAYS_BETWEEN_LEAD_ACTIONS)) {
+            console.log(`   ⚠️  Lead processed within ${MIN_DAYS_BETWEEN_LEAD_ACTIONS} days — skip`);
+            stats.skippedDuplicate++;
+            continue;
+          }
+
+          // ── 4. Copy post URL ──
+          const postUrl = await copyPostLink(page, post.index);
+
+          // ── 5. Duplicate post check ──
+          if (postUrl && (await hasCommentedOnPost(postUrl))) {
+            console.log(`   ⚠️  Already commented on this post — skip`);
+            stats.skippedAlreadyCommented++;
+            await randomDelay(2000, 4000);
+            continue;
+          }
+
+          // ── 6. Generate AI comment ──
+          const commentText = await generateComment(contentToScore, post.authorName);
+          if (!commentText) {
+            console.log(`   ⚠️  Comment generation failed — skip`);
+            continue;
+          }
+
+          // ── 7. Post comment inline ──
+          const commentResult = await commentOnPost(
+            page,
+            post.index,
+            commentText,
+            actuallyComment,
+          );
+
+          if (commentResult.success && actuallyComment) {
+            incrementCommentCount();
+            stats.newComments++;
+          }
+
+          // ── 8. Save lead ──
           const leadData = {
             name: post.authorName,
             profileUrl: post.authorProfileUrl,
-            title: post.authorHeadline,
-            location: contactInfo.location || "",
-            email: contactInfo.email,
-            phone: contactInfo.phone,
-            website: contactInfo.website,
+            title: post.authorHeadline || "",
+            location: "",
+            email: null,
+            phone: null,
+            website: null,
             discoveredFrom: "post",
             searchKeyword: kw.keyword,
-            postContent: post.content,
-            postUrl: postUrl,
-            postTime: post.postTime,
-            conversionScore: post.scorePercent,
-            scoreCategory:
-              post.scorePercent >= 75 ? "hot" :
-              post.scorePercent >= 60 ? "warm" : "cold",
-            scoreReasons: [
-              `Post matched "${kw.keyword}" with ${post.scorePercent}% similarity`,
-            ],
+            postContent: contentToScore.substring(0, 2000),
+            postUrl: postUrl || "",
+            postTime: post.postTime || "",
+            conversionScore: topScore,
+            scoreCategory: category,
+            scoreReasons: classification.topMatches.map(
+              (m) => `${m.label}: ${m.score}%`,
+            ),
             accountId,
-            status: commentResult.success && actuallyComment ? "commented" : "discovered",
+            status:
+              commentResult.success && actuallyComment
+                ? "commented"
+                : "discovered",
+            lastProcessedAt: new Date(),
             aiAnalysis: {
               generatedComment: commentText,
-              similarityScore: post.score,
-              matchedKeyword: kw.keyword,
+              topMatch: classification.topLabel,
+              topScore: topScore,
+              allScores: classification.allScores,
+              searchKeyword: kw.keyword,
             },
           };
 
           await upsertLead(leadData);
           console.log(`   💾 Saved to MongoDB`);
 
-          // ═══════════════════════════════════════════════════════════
-          // STEP 6: Push to Google Sheets
-          // ═══════════════════════════════════════════════════════════
-          await pushLeadToSheet(leadData, commentText);
+          await pushLeadToSheet(leadData, commentText, classification);
           console.log(`   📊 Pushed to Google Sheets`);
 
-          totalLeadsSaved++;
+          stats.leadsSaved++;
 
-          // Long delay between profile visits (safety)
-          const cooldown = 60000 + Math.floor(Math.random() * 120000); // 1-3 minutes
-          console.log(`\n   ⏰ Cooling down ${Math.floor(cooldown / 1000)}s before next post...`);
-          await new Promise((r) => setTimeout(r, cooldown));
+          // Cooldown
+          const cooldownMs = 45000 + Math.floor(Math.random() * 60000);
+          console.log(`\n   ⏰ Cooling ${Math.floor(cooldownMs / 1000)}s...`);
+          await new Promise((r) => setTimeout(r, cooldownMs));
         } catch (err) {
-          console.log(`   ❌ Error: ${err.message}`);
+          console.log(`   ❌ Post error: ${err.message}`);
         }
       }
 
-      // Delay between keywords (longer)
-      console.log(`\n⏰ Cooling down before next keyword...`);
+      console.log(`\n⏰ Cooling before next keyword...`);
       await randomDelay(30000, 60000);
     }
 
-    // Summary
     console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
     console.log(`║  DISCOVERY COMPLETE                                        ║`);
     console.log(`║  🔑 Keywords: ${String(keywordVectors.length).padEnd(44)}║`);
-    console.log(`║  📊 Posts scanned: ${String(totalPostsScanned).padEnd(39)}║`);
-    console.log(`║  🎯 High-score matches: ${String(totalHighScorePosts).padEnd(34)}║`);
-    console.log(`║  💬 Comments posted: ${String(totalCommented).padEnd(37)}║`);
-    console.log(`║  💾 Leads saved: ${String(totalLeadsSaved).padEnd(41)}║`);
+    console.log(`║  📊 Posts scanned: ${String(stats.postsScanned).padEnd(39)}║`);
+    console.log(`║  🎯 High-score matches: ${String(stats.highScorePosts).padEnd(34)}║`);
+    console.log(`║  🔥 Hot: ${String(stats.scoreDistribution.hot).padEnd(49)}║`);
+    console.log(`║  🌤️  Warm: ${String(stats.scoreDistribution.warm).padEnd(48)}║`);
+    console.log(`║  ❄️  Cold: ${String(stats.scoreDistribution.cold).padEnd(48)}║`);
+    console.log(`║  💬 New comments: ${String(stats.newComments).padEnd(40)}║`);
+    console.log(`║  ⏭️  Skipped (commented): ${String(stats.skippedAlreadyCommented).padEnd(33)}║`);
+    console.log(`║  ⏭️  Skipped (duplicate): ${String(stats.skippedDuplicate).padEnd(33)}║`);
+    console.log(`║  💾 Leads saved: ${String(stats.leadsSaved).padEnd(41)}║`);
     console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
   } catch (err) {
     console.error(`\n❌ Fatal: ${err.message}`);
@@ -308,86 +270,64 @@ export async function discoverLeads(accountId, actuallyComment = false) {
   }
 }
 
-/**
- * Push lead to Google Sheets (46 columns)
- */
-async function pushLeadToSheet(lead, commentText) {
+async function pushLeadToSheet(lead, commentText, classification) {
   const now = new Date();
   const today = now.toISOString().split("T")[0];
   const nowIso = now.toISOString();
+  const commented = lead.status === "commented";
+
+  // Build match summary for notes column
+  const matchSummary = classification.topMatches
+    .map((m) => `${m.label}: ${m.score}%`)
+    .join(" | ");
 
   const row = [
-    // ── Discovery Data (A-H) ──
-    today,                                          // A: Date Discovered
-    lead.name || "",                                // B: Name
-    lead.profileUrl || "",                          // C: Profile URL
-    (lead.title || "").substring(0, 300),           // D: Headline
-    lead.location || "",                            // E: Location
-    lead.email || "",                               // F: Email
-    lead.phone || "",                               // G: Phone
-    lead.website || "",                             // H: Website
-
-    // ── Scoring (I-L) ──
-    lead.conversionScore || 0,                      // I: Score (%)
-    lead.scoreCategory || "",                       // J: Category
-    lead.searchKeyword || "",                       // K: Keyword
-    lead.discoveredFrom || "post",                  // L: Source
-
-    // ── Post Info (M-O) ──
-    (lead.postContent || "").substring(0, 1000),    // M: Post Content
-    lead.postUrl || "",                             // N: Post URL
-    lead.postTime || "",                            // O: Post Time
-
-    // ── Comment Actions (P-R) ──
-    lead.status === "commented" ? "Yes" : "No",     // P: Comment Posted
-    commentText || "",                              // Q: Our Comment Text
-    lead.status === "commented" ? today : "",       // R: Comment Date
-
-    // ── Connection (S-U) — Empty on discovery ──
-    "No",                                           // S: Connection Sent
-    "",                                             // T: Connection Note
-    "",                                             // U: Connection Date
-
-    // ── Acceptance (V-W) ──
-    "pending",                                      // V: Connection Status
-    "",                                             // W: Accepted Date
-
-    // ── Warming Message (X-Z) ──
-    "No",                                           // X: Warming Message Sent
-    "",                                             // Y: Warming Message Text
-    "",                                             // Z: Warming Date
-
-    // ── InMail (AA-AC) ──
-    "No",                                           // AA: InMail Sent
-    "",                                             // AB: InMail Text
-    "",                                             // AC: InMail Date
-
-    // ── Reply Tracking (AD-AG) ──
-    "No",                                           // AD: Replied
-    "",                                             // AE: First Reply Date
-    0,                                              // AF: Total Replies
-    "",                                             // AG: Last Reply Preview
-
-    // ── AI Analysis (AH-AJ) ──
-    "",                                             // AH: AI Interest Level
-    "",                                             // AI: AI Sentiment
-    "",                                             // AJ: Follow-up Needed
-
-    // ── Follow-ups (AK-AN) ──
-    "No",                                           // AK: Follow-up 1 Sent
-    "",                                             // AL: Follow-up 1 Date
-    "No",                                           // AM: Follow-up 2 Sent
-    "",                                             // AN: Follow-up 2 Date
-
-    // ── Final Status (AO-AR) ──
-    lead.status || "discovered",                    // AO: Final Status
-    "No",                                           // AP: Meeting Scheduled
-    "",                                             // AQ: Meeting Date
-    "",                                             // AR: Notes
-
-    // ── Metadata (AS-AT) ──
-    lead.accountId || "account_1",                  // AS: Account Used
-    nowIso,                                         // AT: Last Updated
+    today,                                          // A  Date Discovered
+    lead.name || "",                                // B  Name
+    lead.profileUrl || "",                          // C  Profile URL
+    (lead.title || "").substring(0, 300),           // D  Headline
+    lead.location || "",                            // E  Location
+    lead.email || "",                               // F  Email
+    lead.phone || "",                               // G  Phone
+    lead.website || "",                             // H  Website
+    lead.conversionScore || 0,                      // I  Score (%)
+    lead.scoreCategory || "",                       // J  Category
+    lead.searchKeyword || "",                       // K  Keyword
+    lead.discoveredFrom || "post",                  // L  Source
+    (lead.postContent || "").substring(0, 1000),    // M  Post Content
+    lead.postUrl || "",                             // N  Post URL
+    lead.postTime || "",                            // O  Post Time
+    commented ? "Yes" : "No",                       // P  Comment Posted
+    commentText || "",                              // Q  Our Comment Text
+    commented ? today : "",                         // R  Comment Date
+    "No",                                           // S  Connection Sent
+    "",                                             // T  Connection Note
+    "",                                             // U  Connection Date
+    "pending",                                      // V  Connection Status
+    "",                                             // W  Accepted Date
+    "No",                                           // X  Warming Msg Sent
+    "",                                             // Y  Warming Msg Text
+    "",                                             // Z  Warming Date
+    "No",                                           // AA InMail Sent
+    "",                                             // AB InMail Text
+    "",                                             // AC InMail Date
+    "No",                                           // AD Replied
+    "",                                             // AE First Reply Date
+    0,                                              // AF Total Replies
+    "",                                             // AG Last Reply Preview
+    "",                                             // AH AI Interest Level
+    "",                                             // AI AI Sentiment
+    "",                                             // AJ Follow-up Needed
+    "No",                                           // AK Follow-up 1 Sent
+    "",                                             // AL Follow-up 1 Date
+    "No",                                           // AM Follow-up 2 Sent
+    "",                                             // AN Follow-up 2 Date
+    lead.status || "discovered",                    // AO Final Status
+    "No",                                           // AP Meeting Scheduled
+    "",                                             // AQ Meeting Date
+    matchSummary,                                   // AR Notes (top matches)
+    lead.accountId || "account_1",                  // AS Account Used
+    nowIso,                                         // AT Last Updated
   ];
 
   await appendToSheet("Leads", [row]);

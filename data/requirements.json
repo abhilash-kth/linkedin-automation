@@ -1,0 +1,52 @@
+[
+  {
+    "id": "software_agency",
+    "label": "Software Development Agency",
+    "text": "A company looking for a software development partner, outsourcing software development, needing web applications, mobile applications, enterprise software, SaaS platforms, custom software or MVP development. Businesses evaluating development agencies, seeking technical partners, or planning to outsource product engineering."
+  },
+  {
+    "id": "ai_development",
+    "label": "AI Development",
+    "text": "A business planning AI agents, LLM integrations, RAG systems, chatbots, OpenAI Claude Gemini implementations, workflow automation, AI SaaS platforms or intelligent assistants. Companies exploring AI adoption, building AI-powered products, or integrating machine learning into their business processes."
+  },
+  {
+    "id": "saas_product",
+    "label": "SaaS Product Development",
+    "text": "A team building a SaaS product from scratch, planning a subscription-based software platform, developing multi-tenant applications, creating B2B or B2C SaaS tools, launching a new SaaS business, or expanding an existing SaaS product with new features and modules."
+  },
+  {
+    "id": "mvp_development",
+    "label": "MVP Development",
+    "text": "A founder or startup validating an idea, building a minimum viable product, launching a first version of their product, testing product-market fit, needing rapid prototyping, or migrating from no-code tools to custom software after validation."
+  },
+  {
+    "id": "startup_founder",
+    "label": "Startup Founder",
+    "text": "An early-stage startup founder building a product, validating an idea, raising seed funding, discussing product launch challenges, sharing startup journey, looking for engineering capacity, or asking for recommendations on how to build their tech product."
+  },
+  {
+    "id": "technical_cofounder",
+    "label": "Technical Cofounder / CTO Need",
+    "text": "A non-technical founder searching for a CTO, technical cofounder, MVP developer, engineering partner, or fractional CTO. Someone with a business idea but no technical team, looking for someone to lead product development or architect the technical foundation."
+  },
+  {
+    "id": "automation_tools",
+    "label": "Automation & Internal Tools",
+    "text": "A business needing workflow automation, internal tools, custom dashboards, CRM systems, ERP systems, admin panels, or process automation. Companies wanting to automate manual work, integrate multiple SaaS tools, or build custom internal software to improve operations."
+  },
+  {
+    "id": "hiring_developers",
+    "label": "Hiring Developers",
+    "text": "A company hiring React, Node.js, Python, full-stack, backend, frontend, or AI engineers because they need engineering capacity for product development. Not just posting jobs but actively describing project needs, technology stack, or building a team for a specific product."
+  },
+  {
+    "id": "product_scaling",
+    "label": "Product Scaling Challenges",
+    "text": "A business struggling with product development, scaling technical infrastructure, dealing with tech debt, needing help modernizing legacy systems, facing performance issues, or looking for architectural guidance for scaling to more users."
+  },
+  {
+    "id": "mobile_app",
+    "label": "Mobile App Development",
+    "text": "A business or founder planning to build a mobile app for iOS or Android, needing React Native or Flutter development, launching a mobile product, or extending web platform to mobile. Companies wanting native or cross-platform mobile applications."
+  }
+]
