@@ -13,7 +13,19 @@ export async function detectProfileStatus(page) {
       hasPending: false,
       hasMore: false,
       isFirstDegree: false,
+      hasIncomingInvitation: false,
     };
+
+    // Check incoming invitation FIRST
+    const acceptBtn = document.querySelector(
+      'button[aria-label*="Accept" i][aria-label*="request to connect" i]',
+    );
+    if (acceptBtn) {
+      const rect = acceptBtn.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        result.hasIncomingInvitation = true;
+      }
+    }
 
     // Find person name
     const h2s = document.querySelectorAll("h2");
@@ -150,6 +162,6 @@ export async function detectProfileStatus(page) {
   console.log(`   Pending: ${status.hasPending ? "⏳" : "❌"}`);
   console.log(`   More menu: ${status.hasMore ? "✅" : "❌"}`);
   console.log(`   1st degree: ${status.isFirstDegree ? "✅" : "❌"}`);
-
+  console.log(`   Incoming invite: ${status.hasIncomingInvitation ? "💌" : "❌"}`);
   return status;
 }

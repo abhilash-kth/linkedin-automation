@@ -1,62 +1,105 @@
-import { humanClick, humanTypeText } from "../../helpers/human-click.helper.js";
+import { humanClick, humanTypeText, humanMove } from "../../helpers/human-click.helper.js";
 import { randomDelay } from "../../helpers/delay.helper.js";
 import { dismissPremiumModal } from "./premium.service.js";
 import { safeGoto } from "../browser/navigation.service.js";
 
 /**
- * Opens a specific conversation and sends a reply
- * Used for AI-generated replies to existing conversations
+ * Reply to a SPECIFIC conversation using its inbox index
+ * This ensures we reply to the CORRECT thread, not any random one matching the name
+ *
+ * The convoIndex is set by scanInbox() as data-inbox-index attribute
  */
-export async function openConversationAndReply(page, leadName, replyText, actuallySend = false) {
-  console.log(`\n💬 Opening conversation with: ${leadName}`);
+export async function replyToConversationByIndex(page, convoIndex, replyText, actuallySend = false) {
+  console.log(`\n💬 Opening conversation at index ${convoIndex}`);
 
   try {
-    // Navigate to messaging
-    await safeGoto(page, "https://www.linkedin.com/messaging/");
-    await randomDelay(3000, 5000);
+    // First ensure we're on the messaging page
+    const currentUrl = page.url();
+    if (!currentUrl.includes("/messaging")) {
+      await safeGoto(page, "https://www.linkedin.com/messaging/");
+      await randomDelay(3000, 5000);
 
-    // Find and click the conversation
-    const clicked = await page.evaluate((name) => {
-      const items = document.querySelectorAll(
-        ".msg-conversation-listitem, .msg-conversation-card, li[data-view-name='conversation-list-item']"
-      );
-
-      for (const item of items) {
-        const nameEl = item.querySelector(
-          ".msg-conversation-listitem__participant-names, .msg-conversation-card__participant-names, h3 span"
-        );
-        if (nameEl) {
-          const foundName = (nameEl.textContent || "").trim();
-          if (foundName.toLowerCase().includes(name.toLowerCase())) {
-            const rect = item.getBoundingClientRect();
-            item.setAttribute("data-open-convo", "true");
-            return {
-              found: true,
-              x: Math.floor(rect.x + rect.width / 2),
-              y: Math.floor(rect.y + rect.height / 2),
-            };
-          }
+      // Re-scan inbox to re-tag conversations (needed because URL changed)
+      await page.evaluate(() => {
+        const selectors = [
+          ".msg-conversation-listitem",
+          ".msg-conversation-card",
+          'li[data-view-name="conversation-list-item"]',
+        ];
+        let items = [];
+        for (const sel of selectors) {
+          items = document.querySelectorAll(sel);
+          if (items.length > 0) break;
         }
-      }
-      return { found: false };
-    }, leadName);
+        items.forEach((item, index) => {
+          item.setAttribute("data-inbox-index", String(index));
+        });
+      });
+      await randomDelay(1000, 2000);
+    }
 
-    if (!clicked.found) {
-      console.log(`   ❌ Conversation not found for: ${leadName}`);
+    // Find the specific conversation by index
+    const convoInfo = await page.evaluate((idx) => {
+      const item = document.querySelector(`[data-inbox-index="${idx}"]`);
+      if (!item) return { found: false };
+
+      const rect = item.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return { found: false };
+
+      // Get name for verification
+      let name = "";
+      const nameEl = item.querySelector(
+        ".msg-conversation-listitem__participant-names, .msg-conversation-card__participant-names, h3 span",
+      );
+      if (nameEl) name = (nameEl.textContent || "").trim();
+
+      item.scrollIntoView({ block: "center", behavior: "smooth" });
+
+      return {
+        found: true,
+        name,
+        x: Math.floor(rect.x + rect.width / 2),
+        y: Math.floor(rect.y + rect.height / 2),
+      };
+    }, convoIndex);
+
+    if (!convoInfo.found) {
+      console.log(`   ❌ Conversation at index ${convoIndex} not found`);
       return { success: false, reason: "conversation_not_found" };
     }
 
-    await humanClick(page, clicked.x, clicked.y);
+    console.log(`   ✅ Found conversation: ${convoInfo.name}`);
+    await randomDelay(1500, 2500);
+
+    // Refresh coords after scroll
+    const freshCoords = await page.evaluate((idx) => {
+      const item = document.querySelector(`[data-inbox-index="${idx}"]`);
+      if (!item) return null;
+      const rect = item.getBoundingClientRect();
+      return {
+        x: Math.floor(rect.x + rect.width / 2),
+        y: Math.floor(rect.y + rect.height / 2),
+      };
+    }, convoIndex);
+
+    const clickCoords = freshCoords || convoInfo;
+
+    console.log(`   🖱️  Clicking conversation at (${clickCoords.x}, ${clickCoords.y})...`);
+    await humanMove(page, clickCoords.x, clickCoords.y);
+    await randomDelay(400, 800);
+    await humanClick(page, clickCoords.x, clickCoords.y);
     await randomDelay(3000, 5000);
 
-    // Wait for composer
-    console.log(`   ⏳ Waiting for composer...`);
+    // ═══ Wait for composer ═══
+    console.log(`   ⏳ Waiting for message composer...`);
     let composerReady = false;
     for (let i = 0; i < 20; i++) {
       await page.waitForTimeout(1000);
       const ready = await page.evaluate(() => {
         const el = document.querySelector(".msg-form__contenteditable");
-        return el && el.getBoundingClientRect().width > 0;
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 30 && rect.height > 15;
       });
       if (ready) {
         composerReady = true;
@@ -71,7 +114,32 @@ export async function openConversationAndReply(page, leadName, replyText, actual
 
     console.log(`   ✅ Composer ready`);
 
-    // Click composer
+    // ═══ Verify we opened the RIGHT conversation ═══
+    const openedConvoInfo = await page.evaluate(() => {
+      // Get header name of currently open conversation
+      const headerName =
+        document.querySelector(".msg-thread__link-to-profile")?.textContent?.trim() ||
+        document.querySelector(".msg-title-bar__title")?.textContent?.trim() ||
+        document.querySelector("h2.msg-entity-lockup__entity-title")?.textContent?.trim() ||
+        "";
+      return { headerName };
+    });
+
+    console.log(`   🔍 Opened conversation with: "${openedConvoInfo.headerName}"`);
+
+    // Verify name matches expected
+    if (openedConvoInfo.headerName && convoInfo.name) {
+      const openedFirstName = openedConvoInfo.headerName.split(" ")[0].toLowerCase();
+      const expectedFirstName = convoInfo.name.split(" ")[0].toLowerCase();
+      if (!openedFirstName.includes(expectedFirstName) && !expectedFirstName.includes(openedFirstName)) {
+        console.log(`   ⚠️  WARNING: Opened conversation with different person!`);
+        console.log(`      Expected: ${convoInfo.name}`);
+        console.log(`      Opened: ${openedConvoInfo.headerName}`);
+        return { success: false, reason: "wrong_conversation_opened" };
+      }
+    }
+
+    // ═══ Click composer + type ═══
     const composerCoords = await page.evaluate(() => {
       const el = document.querySelector(".msg-form__contenteditable");
       if (!el) return null;
@@ -87,29 +155,27 @@ export async function openConversationAndReply(page, leadName, replyText, actual
     await humanClick(page, composerCoords.x, composerCoords.y);
     await randomDelay(800, 1500);
 
-    // Focus and clear
     await page.evaluate(() => {
       const el = document.querySelector(".msg-form__contenteditable");
-      if (el) {
-        el.focus();
-        el.click();
-      }
+      if (el) { el.focus(); el.click(); }
     });
+
     await page.keyboard.press("Control+a");
     await page.keyboard.press("Delete");
     await randomDelay(400, 800);
 
-    // Type the reply
     console.log(`   ⌨️  Typing reply (${replyText.length} chars)...`);
     await humanTypeText(page, replyText);
     await randomDelay(1500, 2500);
 
     if (!actuallySend) {
       console.log(`   ⚠️  Safe mode — typed but NOT sent`);
+      await page.keyboard.press("Control+a");
+      await page.keyboard.press("Delete");
       return { success: true, action: "typed_only" };
     }
 
-    // Find and click send
+    // ═══ Find and click send button ═══
     const sendCoords = await page.evaluate(() => {
       const selectors = [
         "button.msg-form__send-btn",
@@ -135,7 +201,7 @@ export async function openConversationAndReply(page, leadName, replyText, actual
     if (!sendCoords) return { success: false, reason: "send_button_not_found" };
 
     if (sendCoords.disabled) {
-      // Trigger React
+      // Trigger React state update
       await page.keyboard.press("End");
       await page.keyboard.type(" ");
       await page.waitForTimeout(300);
@@ -146,15 +212,61 @@ export async function openConversationAndReply(page, leadName, replyText, actual
     await humanClick(page, sendCoords.x, sendCoords.y);
     await randomDelay(3000, 5000);
 
-    // Check for premium modal
     if (await dismissPremiumModal(page)) {
       return { success: false, reason: "premium_required" };
     }
 
-    console.log(`   ✅ Reply SENT to ${leadName}`);
+    console.log(`   ✅ Reply SENT`);
     return { success: true, action: "reply_sent" };
   } catch (err) {
     console.log(`   ❌ Error: ${err.message}`);
+    return { success: false, reason: "error", error: err.message };
+  }
+}
+
+/**
+ * LEGACY: Open by name — kept for backward compatibility
+ * Only use for manual outreach, NOT for AI replies (name-matching is unreliable)
+ */
+export async function openConversationAndReply(page, leadName, replyText, actuallySend = false) {
+  console.log(`\n⚠️  Using legacy name-based reply for ${leadName}`);
+
+  try {
+    await safeGoto(page, "https://www.linkedin.com/messaging/");
+    await randomDelay(3000, 5000);
+
+    const clicked = await page.evaluate((name) => {
+      const items = document.querySelectorAll(
+        ".msg-conversation-listitem, .msg-conversation-card",
+      );
+      for (const item of items) {
+        const nameEl = item.querySelector(
+          ".msg-conversation-listitem__participant-names, .msg-conversation-card__participant-names, h3 span",
+        );
+        if (nameEl) {
+          const foundName = (nameEl.textContent || "").trim();
+          if (foundName.toLowerCase().includes(name.toLowerCase())) {
+            const rect = item.getBoundingClientRect();
+            return {
+              found: true,
+              x: Math.floor(rect.x + rect.width / 2),
+              y: Math.floor(rect.y + rect.height / 2),
+            };
+          }
+        }
+      }
+      return { found: false };
+    }, leadName);
+
+    if (!clicked.found) return { success: false, reason: "conversation_not_found" };
+
+    await humanClick(page, clicked.x, clicked.y);
+    await randomDelay(3000, 5000);
+
+    // Rest is same as replyToConversationByIndex — but with less safety
+    // Keeping for legacy but recommend using replyToConversationByIndex
+    return { success: false, reason: "use_replyToConversationByIndex_instead" };
+  } catch (err) {
     return { success: false, reason: "error", error: err.message };
   }
 }

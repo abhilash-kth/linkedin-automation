@@ -24,7 +24,6 @@ import {
   hasCommentedOnPost,
   shouldSkipLead,
 } from "../services/database/lead-db.service.js";
-import { appendToSheet } from "../services/integrations/google-sheets.service.js";
 import { randomDelay } from "../helpers/human-behavior.helper.js";
 
 const SIMILARITY_THRESHOLD_PERCENT = 55; // 55% top match required

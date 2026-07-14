@@ -49,27 +49,529 @@ async function verifyConnectionSent(page) {
   return false;
 }
 
+// export async function sendConnectionRequest(page, personalNote = "", profileUrl = "") {
+//   console.log(`\n📨 Sending connection request...`);
+
+//   try {
+//     const isDialogOpen = async () => {
+//       return await page.evaluate(() => {
+//         const btns = document.querySelectorAll("button");
+//         for (const btn of btns) {
+//           const text = (btn.textContent || "").trim();
+//           const rect = btn.getBoundingClientRect();
+//           if (
+//             (text === "Send" || text === "Send invitation" ||
+//              text === "Send without a note" || text === "Add a note") &&
+//             rect.width > 0 && rect.height > 0
+//           ) return true;
+//         }
+//         return false;
+//       });
+//     };
+
+//     const clickConnectButton = async () => {
+//       const detected = await page.evaluate(() => {
+//         const allEls = [
+//           ...document.querySelectorAll("a[aria-label]"),
+//           ...document.querySelectorAll("button[aria-label]"),
+//         ];
+
+//         for (const el of allEls) {
+//           const rect = el.getBoundingClientRect();
+//           if (rect.width === 0 || rect.height === 0) continue;
+//           if (rect.x > 700 || rect.y < 400 || rect.y > 800) continue;
+//           const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+//           const componentkey = el.getAttribute("componentkey") || "";
+//           if ((aria.includes("invite") && aria.includes("connect")) ||
+//               componentkey.includes("ConnectButton")) {
+//             el.setAttribute("data-outreach-btn-live", "connect");
+//             return {
+//               found: true, type: "direct",
+//               x: Math.floor(rect.x + rect.width / 2),
+//               y: Math.floor(rect.y + rect.height / 2),
+//             };
+//           }
+//         }
+
+//         for (const el of allEls) {
+//           const rect = el.getBoundingClientRect();
+//           if (rect.width === 0 || rect.height === 0) continue;
+//           if (rect.x > 700 || rect.y < 400 || rect.y > 800) continue;
+//           const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+//           if (aria === "more actions" || aria === "more") {
+//             el.setAttribute("data-outreach-btn-live", "more");
+//             return {
+//               found: true, type: "more",
+//               x: Math.floor(rect.x + rect.width / 2),
+//               y: Math.floor(rect.y + rect.height / 2),
+//             };
+//           }
+//         }
+//         return { found: false };
+//       });
+
+//       if (!detected.found) return false;
+//       console.log(`   📍 ${detected.type} button at (${detected.x}, ${detected.y})`);
+
+//       await page.evaluate(() => {
+//         const el = document.querySelector("[data-outreach-btn-live]");
+//         if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+//       });
+//       await randomDelay(1000, 1500);
+
+//       await humanClick(page, detected.x, detected.y);
+//       await randomDelay(1500, 2000);
+
+//       if (detected.type === "direct") {
+//         let dialogOpened = await isDialogOpen();
+//         if (!dialogOpened) {
+//           try {
+//             const locator = page.locator('[data-outreach-btn-live="connect"]').first();
+//             await locator.click({ force: true, timeout: 5000 });
+//             await randomDelay(1500, 2000);
+//           } catch {}
+//           dialogOpened = await isDialogOpen();
+//         }
+
+//         if (!dialogOpened && profileUrl) {
+//           const vanityMatch = profileUrl.match(/\/in\/([^\/\?]+)/);
+//           if (vanityMatch) {
+//             const inviteUrl = `https://www.linkedin.com/preload/custom-invite/?vanityName=${vanityMatch[1]}`;
+//             console.log(`   🔗 Navigating to invite URL: ${inviteUrl}`);
+//             await safeGoto(page, inviteUrl);
+//           }
+//         }
+//       } else if (detected.type === "more") {
+//         let expanded = await page.evaluate(() => {
+//           const el = document.querySelector('[data-outreach-btn-live="more"]');
+//           return el ? el.getAttribute("aria-expanded") : null;
+//         });
+
+//         if (expanded !== "true") {
+//           try {
+//             const locator = page.locator('[data-outreach-btn-live="more"]').first();
+//             await locator.click({ force: true, timeout: 5000 });
+//             await randomDelay(1000, 1500);
+//           } catch {}
+//         }
+
+//         console.log(`   ⏳ Waiting for dropdown...`);
+//         let dropdownReady = false;
+//         for (let i = 0; i < 15; i++) {
+//           await page.waitForTimeout(500);
+//           const has = await page.evaluate(() => {
+//             const el = document.querySelector(
+//               'a[href*="/preload/custom-invite/"], a[href*="/mynetwork/invite-connect/"]',
+//             );
+//             return el && el.getBoundingClientRect().width > 0;
+//           });
+//           if (has) { dropdownReady = true; break; }
+//         }
+
+//         if (!dropdownReady) return false;
+//         console.log(`   ✅ Dropdown appeared`);
+
+//         const connectInfo = await page.evaluate(() => {
+//           const link = document.querySelector(
+//             'a[href*="/preload/custom-invite/"], a[href*="/mynetwork/invite-connect/"]',
+//           );
+//           if (!link) return null;
+//           return { href: link.getAttribute("href") };
+//         });
+
+//         if (!connectInfo) return false;
+//         const fullUrl = connectInfo.href.startsWith("/")
+//           ? "https://www.linkedin.com" + connectInfo.href : connectInfo.href;
+//         console.log(`   🔗 Navigating to invite URL: ${fullUrl}`);
+//         await safeGoto(page, fullUrl);
+//       }
+//       return true;
+//     };
+
+//     const waitForInviteDialog = async () => {
+//       console.log(`   ⏳ Waiting for invitation dialog...`);
+//       for (let i = 0; i < 20; i++) {
+//         await page.waitForTimeout(500);
+//         const state = await page.evaluate(() => {
+//           const buttons = document.querySelectorAll("button");
+//           for (const btn of buttons) {
+//             const text = (btn.textContent || "").trim();
+//             const rect = btn.getBoundingClientRect();
+//             if (
+//               (text === "Send" || text === "Send invitation" ||
+//                text === "Send without a note" || text === "Send now") &&
+//               rect.width > 0 && rect.height > 0
+//             ) return { found: true, text };
+//           }
+//           return { found: false };
+//         });
+//         if (state.found) {
+//           console.log(`   ✅ Dialog ready — "${state.text}" visible`);
+//           return true;
+//         }
+//       }
+//       return false;
+//     };
+
+//     const isAlreadyPending = async () => {
+//       return await page.evaluate(() => {
+//         const bodyText = (document.body.innerText || "").toLowerCase();
+//         return bodyText.includes("pending") || bodyText.includes("invitation sent");
+//       });
+//     };
+
+//     // STEP 1: Click Connect
+//     console.log(`\n   ━━━ STEP 1: Click Connect ━━━`);
+//     const firstClick = await clickConnectButton();
+//     if (!firstClick) return { success: false, reason: "connect_button_not_found" };
+
+//     const immediatePremium = await dismissPremiumModal(page);
+//     if (immediatePremium) {
+//       await randomDelay(2000, 3000);
+//       const currentUrl = page.url();
+//       if (currentUrl.includes("/preload/custom-invite/") ||
+//           currentUrl.includes("/mynetwork/invite-connect/")) {
+//         await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+//         await randomDelay(3000, 5000);
+//       }
+//     }
+
+//     const dialogAppeared = await waitForInviteDialog();
+//     if (!dialogAppeared) {
+//       if (await isAlreadyPending()) return { success: true, hadNote: false };
+//       return { success: false, reason: "dialog_never_appeared" };
+//     }
+
+//     // STEP 2: Try adding note
+//     let noteAdded = false;
+//     let skipNote = false;
+
+//     const hasAddNoteBtn = await page.evaluate(() => {
+//       const btns = document.querySelectorAll("button");
+//       for (const btn of btns) {
+//         const text = (btn.textContent || "").trim();
+//         const rect = btn.getBoundingClientRect();
+//         if (text === "Add a note" && rect.width > 0 && rect.height > 0) return true;
+//       }
+//       return false;
+//     });
+
+//     if (!hasAddNoteBtn) skipNote = true;
+
+//     if (personalNote && personalNote.length > 0 && hasAddNoteBtn && !skipNote) {
+//       console.log(`\n   ━━━ STEP 2: Adding note ━━━`);
+//       const noteCoords = await page.evaluate(() => {
+//         const btns = document.querySelectorAll("button");
+//         for (const btn of btns) {
+//           if ((btn.textContent || "").trim() === "Add a note") {
+//             const rect = btn.getBoundingClientRect();
+//             if (rect.width > 0) return { x: Math.floor(rect.x + rect.width / 2), y: Math.floor(rect.y + rect.height / 2) };
+//           }
+//         }
+//         return null;
+//       });
+
+//       if (noteCoords) {
+//         await humanClick(page, noteCoords.x, noteCoords.y);
+//         await randomDelay(2000, 3000);
+
+//         if (await dismissPremiumModal(page)) {
+//           skipNote = true;
+//           await randomDelay(2000, 3000);
+//           if (!(await isDialogOpen())) {
+//             const currentUrl = page.url();
+//             if (currentUrl.includes("/preload/custom-invite/") ||
+//                 currentUrl.includes("/mynetwork/invite-connect/")) {
+//               await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+//               await randomDelay(4000, 6000);
+//               await waitForInviteDialog();
+//             } else if (profileUrl) {
+//               const vanityMatch = profileUrl.match(/\/in\/([^\/\?]+)/);
+//               if (vanityMatch) {
+//                 await safeGoto(page, `https://www.linkedin.com/preload/custom-invite/?vanityName=${vanityMatch[1]}`);
+//                 await waitForInviteDialog();
+//               }
+//             }
+//           }
+//         }
+//       }
+
+//       if (!skipNote) {
+//         const noteField = page.locator('textarea[name="message"], #custom-message, textarea').first();
+//         if ((await noteField.count()) > 0 && (await noteField.isVisible().catch(() => false))) {
+//           console.log(`   📝 Typing personal note...`);
+//           await noteField.click();
+//           await randomDelay(500, 1000);
+//           await page.keyboard.press("Control+a");
+//           await page.keyboard.press("Delete");
+//           await randomDelay(300, 500);
+//           await humanTypeText(page, personalNote);
+//           await randomDelay(1500, 2500);
+//           noteAdded = true;
+//           console.log(`   ✅ Note typed`);
+//         }
+//       }
+//     }
+
+//     // STEP 3: Click Send
+//     console.log(`\n   ━━━ STEP 3: Click Send ━━━`);
+//     const sendSelectors = skipNote
+//       ? ['button:has-text("Send without a note")', 'button:has-text("Send")']
+//       : ['button:has-text("Send invitation")', 'button:has-text("Send")'];
+
+//     let sent = false;
+//     for (const sel of sendSelectors) {
+//       const btn = page.locator(sel).first();
+//       if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
+//         await btn.click({ force: true });
+//         await randomDelay(2500, 4000);
+
+//         if (await dismissPremiumModal(page)) {
+//           noteAdded = false;
+//           await randomDelay(2000, 3000);
+//           const currentUrl = page.url();
+//           if (currentUrl.includes("/preload/custom-invite/") ||
+//               currentUrl.includes("/mynetwork/invite-connect/")) {
+//             await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+//             await randomDelay(3000, 5000);
+//             await waitForInviteDialog();
+//           }
+//           const swn = page.locator('button:has-text("Send without a note")').first();
+//           if ((await swn.count()) > 0) {
+//             await swn.click({ force: true });
+//             await randomDelay(2500, 4000);
+//           }
+//         }
+
+//         const confirmed = await verifyConnectionSent(page);
+//         if (confirmed) {
+//           console.log(`   ✅ Connection sent! ${noteAdded ? "(WITH note)" : "(no note)"}`);
+//         }
+//         sent = true;
+//         break;
+//       }
+//     }
+
+//     if (!sent) {
+//       if (await isAlreadyPending()) return { success: true, hadNote: noteAdded };
+//       return { success: false, reason: "send_button_not_found" };
+//     }
+
+//     return { success: true, hadNote: noteAdded };
+//   } catch (err) {
+//     console.log(`   ❌ Error: ${err.message}`);
+//     return { success: false, reason: "error", error: err.message };
+//   }
+// }
+
+/**
+ * Check if THIS profile has an incoming invitation from them TO us
+ * (They already sent US a connection request)
+ *
+ * Returns: { hasIncoming: bool, acceptCoords: {x,y} | null }
+ */
+/**
+ * Check if THIS profile has an incoming invitation from them TO us
+ *
+ * STRICT CHECKS:
+ * 1. Must be in main profile area (y > 100 && y < 800)
+ * 2. Must NOT be in top nav or notifications dropdown
+ * 3. Must have "Ignore" button nearby (invitation cards have both)
+ * 4. aria-label must contain the person's name (not our name)
+ */
+export async function checkIncomingInvitation(page, targetPersonName = "") {
+  console.log(`   🔍 Checking for incoming invitation...`);
+
+  try {
+    const result = await page.evaluate((personName) => {
+      const targetFirstName = personName.split(" ")[0].toLowerCase();
+
+      // Selector: Accept buttons with aria-label
+      const acceptBtns = document.querySelectorAll(
+        'button[aria-label*="Accept" i][aria-label*="request to connect" i]',
+      );
+
+      for (const btn of acceptBtns) {
+        const rect = btn.getBoundingClientRect();
+
+        // Must be visible
+        if (rect.width === 0 || rect.height === 0) continue;
+
+        // ═══ STRICT FILTER 1: NOT in top nav ═══
+        // Top nav is roughly y=0-80
+        if (rect.y < 100) {
+          console.log(`Skipping button at y=${rect.y} (top nav area)`);
+          continue;
+        }
+
+        // ═══ STRICT FILTER 2: NOT in bottom overlay ═══
+        if (rect.y > window.innerHeight - 100) continue;
+
+        // ═══ STRICT FILTER 3: Must be in main profile area ═══
+        // Main content typically x=200-1000
+        if (rect.x < 100 || rect.x > 1100) continue;
+
+        // ═══ STRICT FILTER 4: aria-label must match target person (if provided) ═══
+        const ariaLabel = (btn.getAttribute("aria-label") || "").toLowerCase();
+        if (personName && targetFirstName && !ariaLabel.includes(targetFirstName)) {
+          console.log(`Skipping button — aria "${ariaLabel}" doesn't match target "${targetFirstName}"`);
+          continue;
+        }
+
+        // ═══ STRICT FILTER 5: Must have "Ignore" button in same parent ═══
+        // Real invitation cards have BOTH Accept and Ignore buttons
+        let parent = btn.parentElement;
+        let hasIgnoreNearby = false;
+        for (let i = 0; i < 6; i++) {
+          if (!parent) break;
+          const ignoreBtns = parent.querySelectorAll("button");
+          for (const b of ignoreBtns) {
+            const btnText = (b.textContent || "").trim().toLowerCase();
+            const btnAria = (b.getAttribute("aria-label") || "").toLowerCase();
+            if (btnText === "ignore" || btnAria.includes("ignore")) {
+              const iRect = b.getBoundingClientRect();
+              // Ignore button must ALSO be in main area (not in dropdown)
+              if (iRect.width > 0 && iRect.height > 0 && iRect.y > 100) {
+                hasIgnoreNearby = true;
+                break;
+              }
+            }
+          }
+          if (hasIgnoreNearby) break;
+          parent = parent.parentElement;
+        }
+
+        if (!hasIgnoreNearby) {
+          console.log(`Skipping button at (${rect.x}, ${rect.y}) — no Ignore button nearby`);
+          continue;
+        }
+
+        // ═══ ALL CHECKS PASSED — this is a real incoming invitation ═══
+        btn.setAttribute("data-accept-btn", "true");
+        return {
+          hasIncoming: true,
+          ariaLabel: btn.getAttribute("aria-label"),
+          x: Math.floor(rect.x + rect.width / 2),
+          y: Math.floor(rect.y + rect.height / 2),
+          rawY: Math.floor(rect.y),
+        };
+      }
+
+      return { hasIncoming: false };
+    }, targetPersonName);
+
+    if (result.hasIncoming) {
+      console.log(`   💌 REAL incoming invitation found: "${result.ariaLabel}"`);
+      console.log(`   📍 Accept button at (${result.x}, ${result.y})`);
+    } else {
+      console.log(`   ℹ️  No incoming invitation on this profile`);
+    }
+
+    return result;
+  } catch (err) {
+    console.log(`   ⚠️  Incoming check failed: ${err.message}`);
+    return { hasIncoming: false };
+  }
+}
+
+/**
+ * Click the Accept button for incoming invitation
+ */
+export async function acceptIncomingInvitation(page, acceptCoords) {
+  console.log(`   ✅ Accepting incoming invitation...`);
+
+  try {
+    // Scroll button into view
+    await page.evaluate(() => {
+      const btn = document.querySelector('[data-accept-btn="true"]');
+      if (btn) btn.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    await randomDelay(1500, 2500);
+
+    // Refresh coords after scroll
+    const freshCoords = await page.evaluate(() => {
+      const btn = document.querySelector('[data-accept-btn="true"]');
+      if (!btn) return null;
+      const rect = btn.getBoundingClientRect();
+      return {
+        x: Math.floor(rect.x + rect.width / 2),
+        y: Math.floor(rect.y + rect.height / 2),
+      };
+    });
+
+    const coords = freshCoords || acceptCoords;
+
+    // Human click
+    await humanClick(page, coords.x, coords.y);
+    await randomDelay(3000, 5000);
+
+    // Verify: Accept button should be gone
+    const accepted = await page.evaluate(() => {
+      const btn = document.querySelector('[data-accept-btn="true"]');
+      if (!btn) return true;
+      const rect = btn.getBoundingClientRect();
+      return rect.width === 0 || rect.height === 0;
+    });
+
+    // Cleanup tag
+    await page.evaluate(() => {
+      const btn = document.querySelector('[data-accept-btn="true"]');
+      if (btn) btn.removeAttribute("data-accept-btn");
+    });
+
+    if (accepted) {
+      console.log(`   ✅ Invitation ACCEPTED!`);
+      return { success: true };
+    } else {
+      console.log(`   ⚠️  Accept clicked but button still visible`);
+      return { success: false, reason: "not_confirmed" };
+    }
+  } catch (err) {
+    console.log(`   ❌ Accept error: ${err.message}`);
+    return { success: false, reason: "error", error: err.message };
+  }
+}
+
 export async function sendConnectionRequest(page, personalNote = "", profileUrl = "") {
   console.log(`\n📨 Sending connection request...`);
 
   try {
-    const isDialogOpen = async () => {
-      return await page.evaluate(() => {
-        const btns = document.querySelectorAll("button");
-        for (const btn of btns) {
-          const text = (btn.textContent || "").trim();
-          const rect = btn.getBoundingClientRect();
-          if (
-            (text === "Send" || text === "Send invitation" ||
-             text === "Send without a note" || text === "Add a note") &&
-            rect.width > 0 && rect.height > 0
-          ) return true;
-        }
+    // Helper: check if browser/page still alive
+    const isPageAlive = () => {
+      try {
+        return !page.isClosed();
+      } catch {
         return false;
-      });
+      }
+    };
+
+    if (!isPageAlive()) {
+      return { success: false, reason: "page_closed_before_start" };
+    }
+
+    const isDialogOpen = async () => {
+      if (!isPageAlive()) return false;
+      try {
+        return await page.evaluate(() => {
+          const btns = document.querySelectorAll("button");
+          for (const btn of btns) {
+            const text = (btn.textContent || "").trim();
+            const rect = btn.getBoundingClientRect();
+            if (
+              (text === "Send" || text === "Send invitation" ||
+               text === "Send without a note" || text === "Add a note") &&
+              rect.width > 0 && rect.height > 0
+            ) return true;
+          }
+          return false;
+        });
+      } catch {
+        return false;
+      }
     };
 
     const clickConnectButton = async () => {
+      if (!isPageAlive()) return false;
       const detected = await page.evaluate(() => {
         const allEls = [
           ...document.querySelectorAll("a[aria-label]"),
@@ -158,6 +660,7 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
         console.log(`   ⏳ Waiting for dropdown...`);
         let dropdownReady = false;
         for (let i = 0; i < 15; i++) {
+          if (!isPageAlive()) return false;
           await page.waitForTimeout(500);
           const has = await page.evaluate(() => {
             const el = document.querySelector(
@@ -191,6 +694,7 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
     const waitForInviteDialog = async () => {
       console.log(`   ⏳ Waiting for invitation dialog...`);
       for (let i = 0; i < 20; i++) {
+        if (!isPageAlive()) return false;
         await page.waitForTimeout(500);
         const state = await page.evaluate(() => {
           const buttons = document.querySelectorAll("button");
@@ -204,7 +708,8 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
             ) return { found: true, text };
           }
           return { found: false };
-        });
+        }).catch(() => ({ found: false }));
+
         if (state.found) {
           console.log(`   ✅ Dialog ready — "${state.text}" visible`);
           return true;
@@ -214,10 +719,15 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
     };
 
     const isAlreadyPending = async () => {
-      return await page.evaluate(() => {
-        const bodyText = (document.body.innerText || "").toLowerCase();
-        return bodyText.includes("pending") || bodyText.includes("invitation sent");
-      });
+      if (!isPageAlive()) return false;
+      try {
+        return await page.evaluate(() => {
+          const bodyText = (document.body.innerText || "").toLowerCase();
+          return bodyText.includes("pending") || bodyText.includes("invitation sent");
+        });
+      } catch {
+        return false;
+      }
     };
 
     // STEP 1: Click Connect
@@ -225,14 +735,20 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
     const firstClick = await clickConnectButton();
     if (!firstClick) return { success: false, reason: "connect_button_not_found" };
 
+    if (!isPageAlive()) return { success: false, reason: "page_closed_after_click" };
+
     const immediatePremium = await dismissPremiumModal(page);
     if (immediatePremium) {
       await randomDelay(2000, 3000);
-      const currentUrl = page.url();
-      if (currentUrl.includes("/preload/custom-invite/") ||
-          currentUrl.includes("/mynetwork/invite-connect/")) {
-        await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
-        await randomDelay(3000, 5000);
+      if (isPageAlive()) {
+        const currentUrl = page.url();
+        if (currentUrl.includes("/preload/custom-invite/") ||
+            currentUrl.includes("/mynetwork/invite-connect/")) {
+          try {
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+            await randomDelay(3000, 5000);
+          } catch {}
+        }
       }
     }
 
@@ -242,9 +758,11 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
       return { success: false, reason: "dialog_never_appeared" };
     }
 
-    // STEP 2: Try adding note
+    // STEP 2: Try adding note (with safety checks)
     let noteAdded = false;
     let skipNote = false;
+
+    if (!isPageAlive()) return { success: false, reason: "page_closed_before_note" };
 
     const hasAddNoteBtn = await page.evaluate(() => {
       const btns = document.querySelectorAll("button");
@@ -254,7 +772,7 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
         if (text === "Add a note" && rect.width > 0 && rect.height > 0) return true;
       }
       return false;
-    });
+    }).catch(() => false);
 
     if (!hasAddNoteBtn) skipNote = true;
 
@@ -269,22 +787,24 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
           }
         }
         return null;
-      });
+      }).catch(() => null);
 
-      if (noteCoords) {
+      if (noteCoords && isPageAlive()) {
         await humanClick(page, noteCoords.x, noteCoords.y);
         await randomDelay(2000, 3000);
 
-        if (await dismissPremiumModal(page)) {
+        if (isPageAlive() && await dismissPremiumModal(page)) {
           skipNote = true;
           await randomDelay(2000, 3000);
-          if (!(await isDialogOpen())) {
+          if (isPageAlive() && !(await isDialogOpen())) {
             const currentUrl = page.url();
             if (currentUrl.includes("/preload/custom-invite/") ||
                 currentUrl.includes("/mynetwork/invite-connect/")) {
-              await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
-              await randomDelay(4000, 6000);
-              await waitForInviteDialog();
+              try {
+                await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+                await randomDelay(4000, 6000);
+                await waitForInviteDialog();
+              } catch {}
             } else if (profileUrl) {
               const vanityMatch = profileUrl.match(/\/in\/([^\/\?]+)/);
               if (vanityMatch) {
@@ -296,59 +816,85 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
         }
       }
 
-      if (!skipNote) {
-        const noteField = page.locator('textarea[name="message"], #custom-message, textarea').first();
-        if ((await noteField.count()) > 0 && (await noteField.isVisible().catch(() => false))) {
-          console.log(`   📝 Typing personal note...`);
-          await noteField.click();
-          await randomDelay(500, 1000);
-          await page.keyboard.press("Control+a");
-          await page.keyboard.press("Delete");
-          await randomDelay(300, 500);
-          await humanTypeText(page, personalNote);
-          await randomDelay(1500, 2500);
-          noteAdded = true;
-          console.log(`   ✅ Note typed`);
+      if (!skipNote && isPageAlive()) {
+        try {
+          const noteField = page.locator('textarea[name="message"], #custom-message, textarea').first();
+          const fieldExists = await noteField.count() > 0;
+          const fieldVisible = fieldExists && await noteField.isVisible().catch(() => false);
+
+          if (fieldVisible) {
+            console.log(`   📝 Typing personal note...`);
+            await noteField.click();
+            await randomDelay(500, 1000);
+
+            // Safe keyboard operations with try/catch
+            try {
+              await page.keyboard.press("Control+a");
+              await page.keyboard.press("Delete");
+              await randomDelay(300, 500);
+              await humanTypeText(page, personalNote);
+              await randomDelay(1500, 2500);
+              noteAdded = true;
+              console.log(`   ✅ Note typed`);
+            } catch (typeErr) {
+              console.log(`   ⚠️  Note typing failed: ${typeErr.message}`);
+              noteAdded = false;
+            }
+          }
+        } catch (noteErr) {
+          console.log(`   ⚠️  Note field access failed: ${noteErr.message}`);
         }
       }
     }
 
+    if (!isPageAlive()) return { success: false, reason: "page_closed_before_send" };
+
     // STEP 3: Click Send
     console.log(`\n   ━━━ STEP 3: Click Send ━━━`);
-    const sendSelectors = skipNote
-      ? ['button:has-text("Send without a note")', 'button:has-text("Send")']
-      : ['button:has-text("Send invitation")', 'button:has-text("Send")'];
+    const sendSelectors = noteAdded
+      ? ['button:has-text("Send invitation")', 'button:has-text("Send")']
+      : ['button:has-text("Send without a note")', 'button:has-text("Send invitation")', 'button:has-text("Send")'];
 
     let sent = false;
     for (const sel of sendSelectors) {
-      const btn = page.locator(sel).first();
-      if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
-        await btn.click({ force: true });
-        await randomDelay(2500, 4000);
+      if (!isPageAlive()) break;
 
-        if (await dismissPremiumModal(page)) {
-          noteAdded = false;
-          await randomDelay(2000, 3000);
-          const currentUrl = page.url();
-          if (currentUrl.includes("/preload/custom-invite/") ||
-              currentUrl.includes("/mynetwork/invite-connect/")) {
-            await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
-            await randomDelay(3000, 5000);
-            await waitForInviteDialog();
-          }
-          const swn = page.locator('button:has-text("Send without a note")').first();
-          if ((await swn.count()) > 0) {
-            await swn.click({ force: true });
-            await randomDelay(2500, 4000);
-          }
-        }
+      try {
+        const btn = page.locator(sel).first();
+        if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
+          await btn.click({ force: true });
+          await randomDelay(2500, 4000);
 
-        const confirmed = await verifyConnectionSent(page);
-        if (confirmed) {
-          console.log(`   ✅ Connection sent! ${noteAdded ? "(WITH note)" : "(no note)"}`);
+          if (isPageAlive() && await dismissPremiumModal(page)) {
+            noteAdded = false;
+            await randomDelay(2000, 3000);
+            if (isPageAlive()) {
+              const currentUrl = page.url();
+              if (currentUrl.includes("/preload/custom-invite/") ||
+                  currentUrl.includes("/mynetwork/invite-connect/")) {
+                try {
+                  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+                  await randomDelay(3000, 5000);
+                  await waitForInviteDialog();
+                } catch {}
+              }
+              const swn = page.locator('button:has-text("Send without a note")').first();
+              if ((await swn.count()) > 0) {
+                await swn.click({ force: true });
+                await randomDelay(2500, 4000);
+              }
+            }
+          }
+
+          const confirmed = await verifyConnectionSent(page);
+          if (confirmed) {
+            console.log(`   ✅ Connection sent! ${noteAdded ? "(WITH note)" : "(no note)"}`);
+          }
+          sent = true;
+          break;
         }
-        sent = true;
-        break;
+      } catch (btnErr) {
+        console.log(`   ⚠️  Send button attempt failed: ${btnErr.message}`);
       }
     }
 

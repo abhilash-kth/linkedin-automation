@@ -20,15 +20,41 @@ export async function safeGoto(page, url, maxRetries = 3) {
   return false;
 }
 
+// export async function humanRefreshPage(page) {
+//   console.log(`   🔄 Refreshing page like a human...`);
+//   await randomDelay(2000, 4000);
+//   const x = Math.floor(random(200, 800));
+//   const y = Math.floor(random(100, 400));
+//   await humanMove(page, x, y);
+//   await randomDelay(500, 1200);
+
+//   try {
+//     await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+//     await randomDelay(4000, 6000);
+//     console.log(`   ✅ Page refreshed`);
+//     return true;
+//   } catch (err) {
+//     console.log(`   ⚠️  Reload failed: ${err.message}`);
+//     return false;
+//   }
+// }
 export async function humanRefreshPage(page) {
   console.log(`   🔄 Refreshing page like a human...`);
+
+  // Safety check
+  if (page.isClosed()) {
+    console.log(`   ⚠️  Page already closed — can't refresh`);
+    return false;
+  }
+
   await randomDelay(2000, 4000);
-  const x = Math.floor(random(200, 800));
-  const y = Math.floor(random(100, 400));
-  await humanMove(page, x, y);
-  await randomDelay(500, 1200);
 
   try {
+    const x = Math.floor(random(200, 800));
+    const y = Math.floor(random(100, 400));
+    await humanMove(page, x, y);
+    await randomDelay(500, 1200);
+
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
     await randomDelay(4000, 6000);
     console.log(`   ✅ Page refreshed`);

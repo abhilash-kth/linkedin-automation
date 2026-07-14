@@ -225,3 +225,17 @@ Data Flow in Simple Terms
  Updates every 6 hours from MongoDB
 
 
+# See if PM2 is running
+pm2 status
+
+# Watch live activity
+pm2 logs linkedin-scheduler
+
+# See last 100 lines
+pm2 logs linkedin-scheduler --lines 100
+
+# If something's stuck, restart
+pm2 restart linkedin-scheduler
+
+# Emergency stop
+pm2 stop linkedin-scheduler

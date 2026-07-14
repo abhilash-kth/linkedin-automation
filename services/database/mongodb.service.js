@@ -1,6 +1,9 @@
 import mongoose from "mongoose";
 import mongoConfig from "../../config/mongodb.config.js";
 
+// Suppress deprecation warning
+mongoose.set("strictQuery", true);
+
 let isConnected = false;
 
 export async function connectDB() {
