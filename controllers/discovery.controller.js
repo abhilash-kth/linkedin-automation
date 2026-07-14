@@ -1,5 +1,6 @@
 import { launchBrowser, closeBrowser } from "../services/browser/browser.service.js";
 import { checkSession } from "../services/browser/session.service.js";
+import { appendToSheet, buildLeadRow } from "../services/integrations/google-sheets.service.js";
 import {
   searchPostsByKeyword,
   scrollToAndExpandPost,
@@ -271,64 +272,18 @@ export async function discoverLeads(accountId, actuallyComment = false) {
 }
 
 async function pushLeadToSheet(lead, commentText, classification) {
-  const now = new Date();
-  const today = now.toISOString().split("T")[0];
-  const nowIso = now.toISOString();
-  const commented = lead.status === "commented";
+  // Enrich lead with data not yet in DB (for immediate sheet write)
+  const enrichedLead = {
+    ...lead.toObject ? lead.toObject() : lead,
+    aiAnalysis: {
+      ...(lead.aiAnalysis || {}),
+      generatedComment: commentText,
+      allScores: classification.allScores,
+    },
+    createdAt: lead.createdAt || new Date(),
+    updatedAt: new Date(),
+  };
 
-  // Build match summary for notes column
-  const matchSummary = classification.topMatches
-    .map((m) => `${m.label}: ${m.score}%`)
-    .join(" | ");
-
-  const row = [
-    today,                                          // A  Date Discovered
-    lead.name || "",                                // B  Name
-    lead.profileUrl || "",                          // C  Profile URL
-    (lead.title || "").substring(0, 300),           // D  Headline
-    lead.location || "",                            // E  Location
-    lead.email || "",                               // F  Email
-    lead.phone || "",                               // G  Phone
-    lead.website || "",                             // H  Website
-    lead.conversionScore || 0,                      // I  Score (%)
-    lead.scoreCategory || "",                       // J  Category
-    lead.searchKeyword || "",                       // K  Keyword
-    lead.discoveredFrom || "post",                  // L  Source
-    (lead.postContent || "").substring(0, 1000),    // M  Post Content
-    lead.postUrl || "",                             // N  Post URL
-    lead.postTime || "",                            // O  Post Time
-    commented ? "Yes" : "No",                       // P  Comment Posted
-    commentText || "",                              // Q  Our Comment Text
-    commented ? today : "",                         // R  Comment Date
-    "No",                                           // S  Connection Sent
-    "",                                             // T  Connection Note
-    "",                                             // U  Connection Date
-    "pending",                                      // V  Connection Status
-    "",                                             // W  Accepted Date
-    "No",                                           // X  Warming Msg Sent
-    "",                                             // Y  Warming Msg Text
-    "",                                             // Z  Warming Date
-    "No",                                           // AA InMail Sent
-    "",                                             // AB InMail Text
-    "",                                             // AC InMail Date
-    "No",                                           // AD Replied
-    "",                                             // AE First Reply Date
-    0,                                              // AF Total Replies
-    "",                                             // AG Last Reply Preview
-    "",                                             // AH AI Interest Level
-    "",                                             // AI AI Sentiment
-    "",                                             // AJ Follow-up Needed
-    "No",                                           // AK Follow-up 1 Sent
-    "",                                             // AL Follow-up 1 Date
-    "No",                                           // AM Follow-up 2 Sent
-    "",                                             // AN Follow-up 2 Date
-    lead.status || "discovered",                    // AO Final Status
-    "No",                                           // AP Meeting Scheduled
-    "",                                             // AQ Meeting Date
-    matchSummary,                                   // AR Notes (top matches)
-    lead.accountId || "account_1",                  // AS Account Used
-    nowIso,                                         // AT Last Updated
-  ];
-
+  const row = buildLeadRow(enrichedLead);
   await appendToSheet("Leads", [row]);
 }
