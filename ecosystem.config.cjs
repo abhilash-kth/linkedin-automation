@@ -3,29 +3,33 @@ module.exports = {
     {
       name: "linkedin-scheduler",
       script: "./scripts/pc-scheduler.js",
-      interpreter: "C:/Users/kriscent15/.bun/bin/bun.exe",
-      instances: 1,           // CRITICAL: Only 1 instance (never 2)
+      interpreter: "node",
+      exec_mode: "fork",
+      instances: 1,
       autorestart: true,
-      watch: false,           // Don't restart on file change
+      watch: false,
       max_memory_restart: "2G",
-      min_uptime: "60s",      // Consider crashed if dies within 60s
-      max_restarts: 5,        // Stop trying after 5 crashes
-      restart_delay: 30000,   // Wait 30s before restart
+      min_uptime: "60s",
+      max_restarts: 5,
+      restart_delay: 30000,
+      kill_timeout: 10000,
 
-      // ═══ SAFE MODE (default — dry run) ═══
       env: {
         NODE_ENV: "development",
         ACCOUNT_ID: "account_1",
         ACTUALLY_SEND: "false",
         ACTUALLY_COMMENT: "false",
+        HEADLESS: "false",           // ← Visible browser (dev/testing)
+        TZ: "Asia/Kolkata",
       },
 
-      // ═══ PRODUCTION MODE (real send) ═══
       env_production: {
         NODE_ENV: "production",
         ACCOUNT_ID: "account_1",
         ACTUALLY_SEND: "true",
         ACTUALLY_COMMENT: "true",
+        HEADLESS: "true",            // ← Hidden browser (production)
+        TZ: "Asia/Kolkata",
       },
 
       error_file: "./data/logs/scheduler-error.log",
@@ -37,23 +41,32 @@ module.exports = {
     {
       name: "linkedin-api",
       script: "./server.js",
-      interpreter: "C:/Users/kriscent15/.bun/bin/bun.exe",
+      interpreter: "node",
+      exec_mode: "fork",
       instances: 1,
       autorestart: true,
       watch: false,
       max_memory_restart: "500M",
+      min_uptime: "30s",
+      max_restarts: 5,
+      restart_delay: 10000,
+
       env: {
         NODE_ENV: "development",
         PORT: 3001,
+        TZ: "Asia/Kolkata",
       },
       env_production: {
         NODE_ENV: "production",
         PORT: 3001,
+        TZ: "Asia/Kolkata",
       },
+
       error_file: "./data/logs/api-error.log",
       out_file: "./data/logs/api-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       merge_logs: true,
+      time: true,
     },
   ],
 };

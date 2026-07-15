@@ -1,10 +1,17 @@
-import { launchBrowser, closeBrowser } from "../services/browser/browser.service.js";
+import {
+  launchBrowser,
+  closeBrowser,
+} from "../services/browser/browser.service.js";
 import { checkSession } from "../services/browser/session.service.js";
-import { appendToSheet, buildLeadRow } from "../services/integrations/google-sheets.service.js";
+import {
+  appendToSheet,
+  buildLeadRow,
+} from "../services/integrations/google-sheets.service.js";
 import {
   searchPostsByKeyword,
   scrollToAndExpandPost,
 } from "../services/linkedin/post-scraper.service.js";
+import { resolvePostUrl } from "../services/linkedin/post-url-resolver.service.js";
 import {
   copyPostLink,
   commentOnPost,
@@ -30,12 +37,20 @@ const SIMILARITY_THRESHOLD_PERCENT = 55; // 55% top match required
 const MIN_DAYS_BETWEEN_LEAD_ACTIONS = 7;
 
 export async function discoverLeads(accountId, actuallyComment = false) {
-  console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
+  console.log(
+    `\n╔═══════════════════════════════════════════════════════════╗`,
+  );
   console.log(`║  DISCOVERY (v4 - Multi-Embedding Classification)           ║`);
   console.log(`║  Account: ${accountId.padEnd(48)}║`);
-  console.log(`║  Threshold: ${String(SIMILARITY_THRESHOLD_PERCENT).padEnd(3)}% top match                                    ║`);
-  console.log(`║  Mode: ${(actuallyComment ? "REAL COMMENTS" : "SAFE (typed only)").padEnd(51)}║`);
-  console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+  console.log(
+    `║  Threshold: ${String(SIMILARITY_THRESHOLD_PERCENT).padEnd(3)}% top match                                    ║`,
+  );
+  console.log(
+    `║  Mode: ${(actuallyComment ? "REAL COMMENTS" : "SAFE (typed only)").padEnd(51)}║`,
+  );
+  console.log(
+    `╚═══════════════════════════════════════════════════════════╝\n`,
+  );
 
   console.log(`🧠 Preloading Xenova model...`);
   await loadEmbedder();
@@ -48,13 +63,19 @@ export async function discoverLeads(accountId, actuallyComment = false) {
   }
   console.log(`✅ ${keywordVectors.length} keywords loaded`);
 
-  console.log(`\n🎯 Loading requirement embeddings (ideal customer profiles)...`);
+  console.log(
+    `\n🎯 Loading requirement embeddings (ideal customer profiles)...`,
+  );
   const requirementEmbeddings = await getAllRequirementEmbeddings();
   if (requirementEmbeddings.length === 0) {
-    console.log(`\n❌ No requirements. Run: node scripts/embed-requirements.js\n`);
+    console.log(
+      `\n❌ No requirements. Run: node scripts/embed-requirements.js\n`,
+    );
     return;
   }
-  console.log(`✅ ${requirementEmbeddings.length} requirement embeddings loaded`);
+  console.log(
+    `✅ ${requirementEmbeddings.length} requirement embeddings loaded`,
+  );
   requirementEmbeddings.forEach((r, i) => {
     console.log(`   ${i + 1}. ${r.label}`);
   });
@@ -83,7 +104,9 @@ export async function discoverLeads(accountId, actuallyComment = false) {
       const kw = keywordVectors[kIdx];
 
       console.log(`\n${"═".repeat(63)}`);
-      console.log(`🔑 KEYWORD ${kIdx + 1}/${keywordVectors.length}: "${kw.keyword}"`);
+      console.log(
+        `🔑 KEYWORD ${kIdx + 1}/${keywordVectors.length}: "${kw.keyword}"`,
+      );
       console.log("═".repeat(63));
 
       if (!canComment()) {
@@ -130,7 +153,10 @@ export async function discoverLeads(accountId, actuallyComment = false) {
           }
 
           // ── 2. Multi-embedding classification ──
-          const classification = await classifyPost(contentToScore, requirementEmbeddings);
+          const classification = await classifyPost(
+            contentToScore,
+            requirementEmbeddings,
+          );
 
           console.log(`   📊 Classification:`);
           classification.topMatches.forEach((m, i) => {
@@ -141,46 +167,76 @@ export async function discoverLeads(accountId, actuallyComment = false) {
           const topScore = classification.topScore;
 
           if (topScore < SIMILARITY_THRESHOLD_PERCENT) {
-            console.log(`   ⏭️  Top score ${topScore}% < ${SIMILARITY_THRESHOLD_PERCENT}% — skip`);
+            console.log(
+              `   ⏭️  Top score ${topScore}% < ${SIMILARITY_THRESHOLD_PERCENT}% — skip`,
+            );
             await randomDelay(2000, 4000);
             continue;
           }
 
-          console.log(`   ✅ MATCH — ${classification.topLabel} @ ${topScore}%`);
+          console.log(
+            `   ✅ MATCH — ${classification.topLabel} @ ${topScore}%`,
+          );
           stats.highScorePosts++;
 
           // Category
           const category =
-            topScore >= 75 ? "hot" :
-            topScore >= 65 ? "warm" : "cold";
+            topScore >= 75 ? "hot" : topScore >= 65 ? "warm" : "cold";
           stats.scoreDistribution[category]++;
 
           // ── 3. Duplicate lead check ──
-          if (await shouldSkipLead(post.authorProfileUrl, MIN_DAYS_BETWEEN_LEAD_ACTIONS)) {
-            console.log(`   ⚠️  Lead processed within ${MIN_DAYS_BETWEEN_LEAD_ACTIONS} days — skip`);
+          if (
+            await shouldSkipLead(
+              post.authorProfileUrl,
+              MIN_DAYS_BETWEEN_LEAD_ACTIONS,
+            )
+          ) {
+            console.log(
+              `   ⚠️  Lead processed within ${MIN_DAYS_BETWEEN_LEAD_ACTIONS} days — skip`,
+            );
             stats.skippedDuplicate++;
             continue;
           }
 
-          // ── 4. Copy post URL ──
-          const postUrl = await copyPostLink(page, post.index);
+          // ═══════════════════════════════════════════════════════
+          // STEP 4: Copy post URL (ONCE)
+          // ═══════════════════════════════════════════════════════
+          console.log(`\n🔗 STEP 4: Copy post URL`);
+          const rawPostUrl = await copyPostLink(page, post.index);
 
-          // ── 5. Duplicate post check ──
-          if (postUrl && (await hasCommentedOnPost(postUrl))) {
+          if (!rawPostUrl) {
+            console.log(`   ⚠️  Failed to copy URL — skipping post`);
+            continue;
+          }
+
+          // ═══════════════════════════════════════════════════════
+          // STEP 5: Duplicate post check
+          // ═══════════════════════════════════════════════════════
+          if (await hasCommentedOnPost(rawPostUrl)) {
             console.log(`   ⚠️  Already commented on this post — skip`);
             stats.skippedAlreadyCommented++;
             await randomDelay(2000, 4000);
             continue;
           }
 
-          // ── 6. Generate AI comment ──
-          const commentText = await generateComment(contentToScore, post.authorName);
+          // ═══════════════════════════════════════════════════════
+          // STEP 6: Generate AI comment (BEFORE navigating away)
+          // ═══════════════════════════════════════════════════════
+          console.log(`\n✍️  STEP 5: Generate AI comment`);
+          const commentText = await generateComment(
+            contentToScore,
+            post.authorName,
+          );
+
           if (!commentText) {
-            console.log(`   ⚠️  Comment generation failed — skip`);
+            console.log(`   ⚠️  Comment generation failed — skipping`);
             continue;
           }
 
-          // ── 7. Post comment inline ──
+          // ═══════════════════════════════════════════════════════
+          // STEP 7: Post comment INLINE (on search results page — no navigation!)
+          // ═══════════════════════════════════════════════════════
+          console.log(`\n💬 STEP 6: Post comment inline`);
           const commentResult = await commentOnPost(
             page,
             post.index,
@@ -193,7 +249,35 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             stats.newComments++;
           }
 
-          // ── 8. Save lead ──
+          // ═══════════════════════════════════════════════════════
+          // STEP 8: Resolve URL AFTER commenting (in separate tab)
+          // ═══════════════════════════════════════════════════════
+          let cleanPostUrl = rawPostUrl;
+          if (
+            rawPostUrl &&
+            !rawPostUrl.includes("/feed/update/urn:li:activity:")
+          ) {
+            console.log(`\n🔗 STEP 7: Resolving URL in background tab...`);
+
+            const resolverPage = await context.newPage();
+            try {
+              cleanPostUrl = await resolvePostUrl(resolverPage, rawPostUrl);
+              console.log(`   ✅ Clean URL: ${cleanPostUrl.substring(0, 80)}`);
+            } catch (err) {
+              console.log(`   ⚠️  URL resolution failed: ${err.message}`);
+              cleanPostUrl = rawPostUrl;
+            } finally {
+              try {
+                await resolverPage.close();
+              } catch {}
+            }
+          }
+
+          // ═══════════════════════════════════════════════════════
+          // STEP 9: Save lead to MongoDB
+          // ═══════════════════════════════════════════════════════
+          const wasCommented = commentResult.success && actuallyComment;
+
           const leadData = {
             name: post.authorName,
             profileUrl: post.authorProfileUrl,
@@ -205,7 +289,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             discoveredFrom: "post",
             searchKeyword: kw.keyword,
             postContent: contentToScore.substring(0, 2000),
-            postUrl: postUrl || "",
+            postUrl: cleanPostUrl || rawPostUrl || "",
             postTime: post.postTime || "",
             conversionScore: topScore,
             scoreCategory: category,
@@ -213,13 +297,11 @@ export async function discoverLeads(accountId, actuallyComment = false) {
               (m) => `${m.label}: ${m.score}%`,
             ),
             accountId,
-            status:
-              commentResult.success && actuallyComment
-                ? "commented"
-                : "discovered",
+            status: wasCommented ? "commented" : "discovered",
+            commentedAt: wasCommented ? new Date() : null,
             lastProcessedAt: new Date(),
             aiAnalysis: {
-              generatedComment: commentText,
+              generatedComment: wasCommented ? commentText : null,
               topMatch: classification.topLabel,
               topScore: topScore,
               allScores: classification.allScores,
@@ -228,12 +310,124 @@ export async function discoverLeads(accountId, actuallyComment = false) {
           };
 
           await upsertLead(leadData);
-          console.log(`   💾 Saved to MongoDB`);
+          console.log(`   💾 Saved to MongoDB (status: ${leadData.status})`);
 
-          await pushLeadToSheet(leadData, commentText, classification);
+          await pushLeadToSheet(
+            leadData,
+            wasCommented ? commentText : null,
+            classification,
+          );
           console.log(`   📊 Pushed to Google Sheets`);
 
           stats.leadsSaved++;
+
+          // // ── 4. Copy post URL ──
+          // console.log(`\n🔗 STEP 4: Copy post URL`);
+          // const rawPostUrl = await copyPostLink(page, post.index);
+
+          // if (!rawPostUrl) {
+          //   console.log(`   ⚠️  Failed to copy URL — skipping post`);
+          //   continue;
+          // }
+
+          // // ── 5. Duplicate post check ──
+          // if (postUrl && (await hasCommentedOnPost(postUrl))) {
+          //   console.log(`   ⚠️  Already commented on this post — skip`);
+          //   stats.skippedAlreadyCommented++;
+          //   await randomDelay(2000, 4000);
+          //   continue;
+          // }
+
+          // let cleanPostUrl = rawPostUrl;
+          // if (
+          //   rawPostUrl &&
+          //   !rawPostUrl.includes("/feed/update/urn:li:activity:")
+          // ) {
+          //   console.log(`   🔗 Resolving short URL to activity URL...`);
+
+          //   // Open URL in new tab briefly to get activity ID
+          //   const newPage = await context.newPage();
+          //   try {
+          //     cleanPostUrl = await resolvePostUrl(newPage, rawPostUrl);
+          //     console.log(`   ✅ Clean URL: ${cleanPostUrl.substring(0, 80)}`);
+          //   } catch (err) {
+          //     console.log(`   ⚠️  URL resolution failed: ${err.message}`);
+          //     cleanPostUrl = rawPostUrl;
+          //   } finally {
+          //     await newPage.close();
+          //   }
+          // }
+
+          // // ── 6. Generate AI comment ──
+          // const commentText = await generateComment(
+          //   contentToScore,
+          //   post.authorName,
+          // );
+          // if (!commentText) {
+          //   console.log(`   ⚠️  Comment generation failed — skip`);
+          //   continue;
+          // }
+
+          // // ── 7. Post comment inline ──
+          // const commentResult = await commentOnPost(
+          //   page,
+          //   post.index,
+          //   commentText,
+          //   actuallyComment,
+          // );
+
+          // if (commentResult.success && actuallyComment) {
+          //   incrementCommentCount();
+          //   stats.newComments++;
+          // }
+
+          // // After commentResult:
+          // const wasCommented = commentResult.success && actuallyComment;
+
+          // // ── 8. Save lead ──
+          // const leadData = {
+          //   name: post.authorName,
+          //   profileUrl: post.authorProfileUrl,
+          //   title: post.authorHeadline || "",
+          //   location: "",
+          //   email: null,
+          //   phone: null,
+          //   website: null,
+          //   discoveredFrom: "post",
+          //   searchKeyword: kw.keyword,
+          //   postContent: contentToScore.substring(0, 2000),
+          //   postUrl: cleanPostUrl || rawPostUrl || "",
+          //   postTime: post.postTime || "",
+          //   conversionScore: topScore,
+          //   scoreCategory: category,
+          //   scoreReasons: classification.topMatches.map(
+          //     (m) => `${m.label}: ${m.score}%`,
+          //   ),
+          //   accountId,
+          //   status: wasCommented ? "commented" : "discovered", // ← CRITICAL: set correctly
+          //   commentedAt: wasCommented ? new Date() : null, // ← Track when commented
+          //   lastProcessedAt: new Date(),
+          //   aiAnalysis: {
+          //     generatedComment: wasCommented ? commentText : null, // ← Only save if posted
+          //     topMatch: classification.topLabel,
+          //     topScore: topScore,
+          //     allScores: classification.allScores,
+          //     searchKeyword: kw.keyword,
+          //   },
+          // };
+
+          // await upsertLead(leadData);
+          // console.log(`   💾 Saved to MongoDB (status: ${leadData.status})`);
+
+          // // Pass the wasCommented flag to sheet builder
+          // await pushLeadToSheet(
+          //   leadData,
+          //   wasCommented ? commentText : null,
+          //   classification,
+          // );
+          // console.log(`   📊 Pushed to Google Sheets`);
+
+          // stats.leadsSaved++;
 
           // Cooldown
           const cooldownMs = 45000 + Math.floor(Math.random() * 60000);
@@ -248,19 +442,39 @@ export async function discoverLeads(accountId, actuallyComment = false) {
       await randomDelay(30000, 60000);
     }
 
-    console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
-    console.log(`║  DISCOVERY COMPLETE                                        ║`);
+    console.log(
+      `\n╔═══════════════════════════════════════════════════════════╗`,
+    );
+    console.log(
+      `║  DISCOVERY COMPLETE                                        ║`,
+    );
     console.log(`║  🔑 Keywords: ${String(keywordVectors.length).padEnd(44)}║`);
-    console.log(`║  📊 Posts scanned: ${String(stats.postsScanned).padEnd(39)}║`);
-    console.log(`║  🎯 High-score matches: ${String(stats.highScorePosts).padEnd(34)}║`);
-    console.log(`║  🔥 Hot: ${String(stats.scoreDistribution.hot).padEnd(49)}║`);
-    console.log(`║  🌤️  Warm: ${String(stats.scoreDistribution.warm).padEnd(48)}║`);
-    console.log(`║  ❄️  Cold: ${String(stats.scoreDistribution.cold).padEnd(48)}║`);
+    console.log(
+      `║  📊 Posts scanned: ${String(stats.postsScanned).padEnd(39)}║`,
+    );
+    console.log(
+      `║  🎯 High-score matches: ${String(stats.highScorePosts).padEnd(34)}║`,
+    );
+    console.log(
+      `║  🔥 Hot: ${String(stats.scoreDistribution.hot).padEnd(49)}║`,
+    );
+    console.log(
+      `║  🌤️  Warm: ${String(stats.scoreDistribution.warm).padEnd(48)}║`,
+    );
+    console.log(
+      `║  ❄️  Cold: ${String(stats.scoreDistribution.cold).padEnd(48)}║`,
+    );
     console.log(`║  💬 New comments: ${String(stats.newComments).padEnd(40)}║`);
-    console.log(`║  ⏭️  Skipped (commented): ${String(stats.skippedAlreadyCommented).padEnd(33)}║`);
-    console.log(`║  ⏭️  Skipped (duplicate): ${String(stats.skippedDuplicate).padEnd(33)}║`);
+    console.log(
+      `║  ⏭️  Skipped (commented): ${String(stats.skippedAlreadyCommented).padEnd(33)}║`,
+    );
+    console.log(
+      `║  ⏭️  Skipped (duplicate): ${String(stats.skippedDuplicate).padEnd(33)}║`,
+    );
     console.log(`║  💾 Leads saved: ${String(stats.leadsSaved).padEnd(41)}║`);
-    console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+    console.log(
+      `╚═══════════════════════════════════════════════════════════╝\n`,
+    );
   } catch (err) {
     console.error(`\n❌ Fatal: ${err.message}`);
     console.error(err.stack);
@@ -273,7 +487,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
 async function pushLeadToSheet(lead, commentText, classification) {
   // Enrich lead with data not yet in DB (for immediate sheet write)
   const enrichedLead = {
-    ...lead.toObject ? lead.toObject() : lead,
+    ...(lead.toObject ? lead.toObject() : lead),
     aiAnalysis: {
       ...(lead.aiAnalysis || {}),
       generatedComment: commentText,

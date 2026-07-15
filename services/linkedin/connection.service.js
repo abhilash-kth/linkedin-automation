@@ -23,9 +23,11 @@ async function verifyConnectionSent(page) {
         const text = (btn.textContent || "").trim();
         const rect = btn.getBoundingClientRect();
         if (
-          (text === "Send" || text === "Send invitation" ||
-           text === "Send without a note") &&
-          rect.width > 0 && rect.height > 0
+          (text === "Send" ||
+            text === "Send invitation" ||
+            text === "Send without a note") &&
+          rect.width > 0 &&
+          rect.height > 0
         ) {
           sendVisible = true;
           break;
@@ -38,7 +40,14 @@ async function verifyConnectionSent(page) {
       const leftInvitePage =
         !currentUrl.includes("/preload/custom-invite/") &&
         !currentUrl.includes("/mynetwork/invite-connect/");
-      return { currentUrl, urlChanged, hasPending, sendVisible, hasToast, leftInvitePage };
+      return {
+        currentUrl,
+        urlChanged,
+        hasPending,
+        sendVisible,
+        hasToast,
+        leftInvitePage,
+      };
     }, startUrl);
 
     if (state.hasPending) return true;
@@ -413,8 +422,14 @@ export async function checkIncomingInvitation(page, targetPersonName = "") {
 
         // ═══ STRICT FILTER 4: aria-label must match target person (if provided) ═══
         const ariaLabel = (btn.getAttribute("aria-label") || "").toLowerCase();
-        if (personName && targetFirstName && !ariaLabel.includes(targetFirstName)) {
-          console.log(`Skipping button — aria "${ariaLabel}" doesn't match target "${targetFirstName}"`);
+        if (
+          personName &&
+          targetFirstName &&
+          !ariaLabel.includes(targetFirstName)
+        ) {
+          console.log(
+            `Skipping button — aria "${ariaLabel}" doesn't match target "${targetFirstName}"`,
+          );
           continue;
         }
 
@@ -442,7 +457,9 @@ export async function checkIncomingInvitation(page, targetPersonName = "") {
         }
 
         if (!hasIgnoreNearby) {
-          console.log(`Skipping button at (${rect.x}, ${rect.y}) — no Ignore button nearby`);
+          console.log(
+            `Skipping button at (${rect.x}, ${rect.y}) — no Ignore button nearby`,
+          );
           continue;
         }
 
@@ -461,7 +478,9 @@ export async function checkIncomingInvitation(page, targetPersonName = "") {
     }, targetPersonName);
 
     if (result.hasIncoming) {
-      console.log(`   💌 REAL incoming invitation found: "${result.ariaLabel}"`);
+      console.log(
+        `   💌 REAL incoming invitation found: "${result.ariaLabel}"`,
+      );
       console.log(`   📍 Accept button at (${result.x}, ${result.y})`);
     } else {
       console.log(`   ℹ️  No incoming invitation on this profile`);
@@ -532,7 +551,11 @@ export async function acceptIncomingInvitation(page, acceptCoords) {
   }
 }
 
-export async function sendConnectionRequest(page, personalNote = "", profileUrl = "") {
+export async function sendConnectionRequest(
+  page,
+  personalNote = "",
+  profileUrl = "",
+) {
   console.log(`\n📨 Sending connection request...`);
 
   try {
@@ -558,10 +581,14 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
             const text = (btn.textContent || "").trim();
             const rect = btn.getBoundingClientRect();
             if (
-              (text === "Send" || text === "Send invitation" ||
-               text === "Send without a note" || text === "Add a note") &&
-              rect.width > 0 && rect.height > 0
-            ) return true;
+              (text === "Send" ||
+                text === "Send invitation" ||
+                text === "Send without a note" ||
+                text === "Add a note") &&
+              rect.width > 0 &&
+              rect.height > 0
+            )
+              return true;
           }
           return false;
         });
@@ -584,11 +611,14 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
           if (rect.x > 700 || rect.y < 400 || rect.y > 800) continue;
           const aria = (el.getAttribute("aria-label") || "").toLowerCase();
           const componentkey = el.getAttribute("componentkey") || "";
-          if ((aria.includes("invite") && aria.includes("connect")) ||
-              componentkey.includes("ConnectButton")) {
+          if (
+            (aria.includes("invite") && aria.includes("connect")) ||
+            componentkey.includes("ConnectButton")
+          ) {
             el.setAttribute("data-outreach-btn-live", "connect");
             return {
-              found: true, type: "direct",
+              found: true,
+              type: "direct",
               x: Math.floor(rect.x + rect.width / 2),
               y: Math.floor(rect.y + rect.height / 2),
             };
@@ -603,7 +633,8 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
           if (aria === "more actions" || aria === "more") {
             el.setAttribute("data-outreach-btn-live", "more");
             return {
-              found: true, type: "more",
+              found: true,
+              type: "more",
               x: Math.floor(rect.x + rect.width / 2),
               y: Math.floor(rect.y + rect.height / 2),
             };
@@ -613,7 +644,9 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
       });
 
       if (!detected.found) return false;
-      console.log(`   📍 ${detected.type} button at (${detected.x}, ${detected.y})`);
+      console.log(
+        `   📍 ${detected.type} button at (${detected.x}, ${detected.y})`,
+      );
 
       await page.evaluate(() => {
         const el = document.querySelector("[data-outreach-btn-live]");
@@ -628,7 +661,9 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
         let dialogOpened = await isDialogOpen();
         if (!dialogOpened) {
           try {
-            const locator = page.locator('[data-outreach-btn-live="connect"]').first();
+            const locator = page
+              .locator('[data-outreach-btn-live="connect"]')
+              .first();
             await locator.click({ force: true, timeout: 5000 });
             await randomDelay(1500, 2000);
           } catch {}
@@ -651,43 +686,201 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
 
         if (expanded !== "true") {
           try {
-            const locator = page.locator('[data-outreach-btn-live="more"]').first();
+            const locator = page
+              .locator('[data-outreach-btn-live="more"]')
+              .first();
             await locator.click({ force: true, timeout: 5000 });
-            await randomDelay(1000, 1500);
+            await randomDelay(1500, 2500);
           } catch {}
         }
 
-        console.log(`   ⏳ Waiting for dropdown...`);
+        console.log(`   ⏳ Waiting for dropdown to render...`);
+
         let dropdownReady = false;
-        for (let i = 0; i < 15; i++) {
+        let connectData = null;
+
+        // Check every 300ms for 20 seconds (fast polling to catch dropdown before it closes)
+        for (let i = 0; i < 66; i++) {
           if (!isPageAlive()) return false;
-          await page.waitForTimeout(500);
-          const has = await page.evaluate(() => {
-            const el = document.querySelector(
+          await page.waitForTimeout(300);
+
+          connectData = await page.evaluate(() => {
+            // PRIMARY: componentkey (most unique to Connect button)
+            const connectByComponentKey = document.querySelector(
+              'a[componentkey*="ConnectButton"], a[componentkey*="connect"]',
+            );
+            if (connectByComponentKey) {
+              const rect = connectByComponentKey.getBoundingClientRect();
+              const href = connectByComponentKey.getAttribute("href");
+              if (rect.width > 0 && rect.height > 0 && href) {
+                return {
+                  found: true,
+                  method: "componentkey",
+                  href: href,
+                  x: Math.floor(rect.x + rect.width / 2),
+                  y: Math.floor(rect.y + rect.height / 2),
+                };
+              }
+            }
+
+            // SECONDARY: href with invite pattern
+            const inviteLinks = document.querySelectorAll(
               'a[href*="/preload/custom-invite/"], a[href*="/mynetwork/invite-connect/"]',
             );
-            return el && el.getBoundingClientRect().width > 0;
+            for (const link of inviteLinks) {
+              const rect = link.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                return {
+                  found: true,
+                  method: "href_pattern",
+                  href: link.getAttribute("href"),
+                  x: Math.floor(rect.x + rect.width / 2),
+                  y: Math.floor(rect.y + rect.height / 2),
+                };
+              }
+            }
+
+            // TERTIARY: aria-label match
+            const ariaMatch = document.querySelector(
+              '[aria-label*="Invite" i][aria-label*="to connect" i]',
+            );
+            if (ariaMatch) {
+              const link = ariaMatch.closest("a") || ariaMatch;
+              const rect = link.getBoundingClientRect();
+              const href = link.getAttribute("href");
+              if (rect.width > 0 && rect.height > 0 && href) {
+                return {
+                  found: true,
+                  method: "aria_label",
+                  href: href,
+                  x: Math.floor(rect.x + rect.width / 2),
+                  y: Math.floor(rect.y + rect.height / 2),
+                };
+              }
+            }
+
+            // QUATERNARY: menuitem with text "Connect"
+            const menuItems = document.querySelectorAll('a[role="menuitem"]');
+            for (const item of menuItems) {
+              const text = (item.textContent || "").trim();
+              const href = item.getAttribute("href");
+              if (text === "Connect" && href) {
+                const rect = item.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                  return {
+                    found: true,
+                    method: "menuitem_text",
+                    href: href,
+                    x: Math.floor(rect.x + rect.width / 2),
+                    y: Math.floor(rect.y + rect.height / 2),
+                  };
+                }
+              }
+            }
+
+            return { found: false };
           });
-          if (has) { dropdownReady = true; break; }
+
+          if (connectData && connectData.found) {
+            dropdownReady = true;
+            console.log(
+              `   ✅ Connect found in dropdown (${connectData.method})`,
+            );
+            console.log(`      href: ${connectData.href}`);
+            break;
+          }
+
+          // If dropdown was closed (button not expanded anymore), re-click it
+          if (i > 0 && i % 20 === 0) {
+            const stillExpanded = await page.evaluate(() => {
+              const el = document.querySelector(
+                '[data-outreach-btn-live="more"]',
+              );
+              return el ? el.getAttribute("aria-expanded") === "true" : false;
+            });
+
+            if (!stillExpanded) {
+              console.log(
+                `   🔄 Dropdown closed — re-clicking More button (attempt ${i / 20})`,
+              );
+              try {
+                const locator = page
+                  .locator('[data-outreach-btn-live="more"]')
+                  .first();
+                await locator.click({ force: true, timeout: 5000 });
+                await randomDelay(1500, 2500);
+              } catch {}
+            } else {
+              console.log(
+                `   ⏳ Still searching... (${Math.floor(i / 3)}s elapsed)`,
+              );
+            }
+          }
         }
 
-        if (!dropdownReady) return false;
-        console.log(`   ✅ Dropdown appeared`);
-
-        const connectInfo = await page.evaluate(() => {
-          const link = document.querySelector(
-            'a[href*="/preload/custom-invite/"], a[href*="/mynetwork/invite-connect/"]',
+        if (!dropdownReady) {
+          console.log(
+            `   ⚠️  Connect option not available in dropdown after 20s`,
           );
-          if (!link) return null;
-          return { href: link.getAttribute("href") };
-        });
+          try {
+            await page.keyboard.press("Escape");
+          } catch {}
+          await randomDelay(1000, 2000);
+          return false;
+        }
 
-        if (!connectInfo) return false;
-        const fullUrl = connectInfo.href.startsWith("/")
-          ? "https://www.linkedin.com" + connectInfo.href : connectInfo.href;
+        // Navigate to invite URL directly (most reliable)
+        const fullUrl = connectData.href.startsWith("/")
+          ? "https://www.linkedin.com" + connectData.href
+          : connectData.href;
         console.log(`   🔗 Navigating to invite URL: ${fullUrl}`);
         await safeGoto(page, fullUrl);
       }
+      // } else if (detected.type === "more") {
+      //   let expanded = await page.evaluate(() => {
+      //     const el = document.querySelector('[data-outreach-btn-live="more"]');
+      //     return el ? el.getAttribute("aria-expanded") : null;
+      //   });
+
+      //   if (expanded !== "true") {
+      //     try {
+      //       const locator = page.locator('[data-outreach-btn-live="more"]').first();
+      //       await locator.click({ force: true, timeout: 5000 });
+      //       await randomDelay(1000, 1500);
+      //     } catch {}
+      //   }
+
+      //   console.log(`   ⏳ Waiting for dropdown...`);
+      //   let dropdownReady = false;
+      //   for (let i = 0; i < 15; i++) {
+      //     if (!isPageAlive()) return false;
+      //     await page.waitForTimeout(500);
+      //     const has = await page.evaluate(() => {
+      //       const el = document.querySelector(
+      //         'a[href*="/preload/custom-invite/"], a[href*="/mynetwork/invite-connect/"]',
+      //       );
+      //       return el && el.getBoundingClientRect().width > 0;
+      //     });
+      //     if (has) { dropdownReady = true; break; }
+      //   }
+
+      //   if (!dropdownReady) return false;
+      //   console.log(`   ✅ Dropdown appeared`);
+
+      //   const connectInfo = await page.evaluate(() => {
+      //     const link = document.querySelector(
+      //       'a[href*="/preload/custom-invite/"], a[href*="/mynetwork/invite-connect/"]',
+      //     );
+      //     if (!link) return null;
+      //     return { href: link.getAttribute("href") };
+      //   });
+
+      //   if (!connectInfo) return false;
+      //   const fullUrl = connectInfo.href.startsWith("/")
+      //     ? "https://www.linkedin.com" + connectInfo.href : connectInfo.href;
+      //   console.log(`   🔗 Navigating to invite URL: ${fullUrl}`);
+      //   await safeGoto(page, fullUrl);
+      // }
       return true;
     };
 
@@ -696,19 +889,25 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
       for (let i = 0; i < 20; i++) {
         if (!isPageAlive()) return false;
         await page.waitForTimeout(500);
-        const state = await page.evaluate(() => {
-          const buttons = document.querySelectorAll("button");
-          for (const btn of buttons) {
-            const text = (btn.textContent || "").trim();
-            const rect = btn.getBoundingClientRect();
-            if (
-              (text === "Send" || text === "Send invitation" ||
-               text === "Send without a note" || text === "Send now") &&
-              rect.width > 0 && rect.height > 0
-            ) return { found: true, text };
-          }
-          return { found: false };
-        }).catch(() => ({ found: false }));
+        const state = await page
+          .evaluate(() => {
+            const buttons = document.querySelectorAll("button");
+            for (const btn of buttons) {
+              const text = (btn.textContent || "").trim();
+              const rect = btn.getBoundingClientRect();
+              if (
+                (text === "Send" ||
+                  text === "Send invitation" ||
+                  text === "Send without a note" ||
+                  text === "Send now") &&
+                rect.width > 0 &&
+                rect.height > 0
+              )
+                return { found: true, text };
+            }
+            return { found: false };
+          })
+          .catch(() => ({ found: false }));
 
         if (state.found) {
           console.log(`   ✅ Dialog ready — "${state.text}" visible`);
@@ -723,7 +922,9 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
       try {
         return await page.evaluate(() => {
           const bodyText = (document.body.innerText || "").toLowerCase();
-          return bodyText.includes("pending") || bodyText.includes("invitation sent");
+          return (
+            bodyText.includes("pending") || bodyText.includes("invitation sent")
+          );
         });
       } catch {
         return false;
@@ -733,19 +934,26 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
     // STEP 1: Click Connect
     console.log(`\n   ━━━ STEP 1: Click Connect ━━━`);
     const firstClick = await clickConnectButton();
-    if (!firstClick) return { success: false, reason: "connect_button_not_found" };
+    if (!firstClick)
+      return { success: false, reason: "connect_button_not_found" };
 
-    if (!isPageAlive()) return { success: false, reason: "page_closed_after_click" };
+    if (!isPageAlive())
+      return { success: false, reason: "page_closed_after_click" };
 
     const immediatePremium = await dismissPremiumModal(page);
     if (immediatePremium) {
       await randomDelay(2000, 3000);
       if (isPageAlive()) {
         const currentUrl = page.url();
-        if (currentUrl.includes("/preload/custom-invite/") ||
-            currentUrl.includes("/mynetwork/invite-connect/")) {
+        if (
+          currentUrl.includes("/preload/custom-invite/") ||
+          currentUrl.includes("/mynetwork/invite-connect/")
+        ) {
           try {
-            await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+            await page.reload({
+              waitUntil: "domcontentloaded",
+              timeout: 60000,
+            });
             await randomDelay(3000, 5000);
           } catch {}
         }
@@ -762,53 +970,71 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
     let noteAdded = false;
     let skipNote = false;
 
-    if (!isPageAlive()) return { success: false, reason: "page_closed_before_note" };
+    if (!isPageAlive())
+      return { success: false, reason: "page_closed_before_note" };
 
-    const hasAddNoteBtn = await page.evaluate(() => {
-      const btns = document.querySelectorAll("button");
-      for (const btn of btns) {
-        const text = (btn.textContent || "").trim();
-        const rect = btn.getBoundingClientRect();
-        if (text === "Add a note" && rect.width > 0 && rect.height > 0) return true;
-      }
-      return false;
-    }).catch(() => false);
+    const hasAddNoteBtn = await page
+      .evaluate(() => {
+        const btns = document.querySelectorAll("button");
+        for (const btn of btns) {
+          const text = (btn.textContent || "").trim();
+          const rect = btn.getBoundingClientRect();
+          if (text === "Add a note" && rect.width > 0 && rect.height > 0)
+            return true;
+        }
+        return false;
+      })
+      .catch(() => false);
 
     if (!hasAddNoteBtn) skipNote = true;
 
     if (personalNote && personalNote.length > 0 && hasAddNoteBtn && !skipNote) {
       console.log(`\n   ━━━ STEP 2: Adding note ━━━`);
-      const noteCoords = await page.evaluate(() => {
-        const btns = document.querySelectorAll("button");
-        for (const btn of btns) {
-          if ((btn.textContent || "").trim() === "Add a note") {
-            const rect = btn.getBoundingClientRect();
-            if (rect.width > 0) return { x: Math.floor(rect.x + rect.width / 2), y: Math.floor(rect.y + rect.height / 2) };
+      const noteCoords = await page
+        .evaluate(() => {
+          const btns = document.querySelectorAll("button");
+          for (const btn of btns) {
+            if ((btn.textContent || "").trim() === "Add a note") {
+              const rect = btn.getBoundingClientRect();
+              if (rect.width > 0)
+                return {
+                  x: Math.floor(rect.x + rect.width / 2),
+                  y: Math.floor(rect.y + rect.height / 2),
+                };
+            }
           }
-        }
-        return null;
-      }).catch(() => null);
+          return null;
+        })
+        .catch(() => null);
 
       if (noteCoords && isPageAlive()) {
         await humanClick(page, noteCoords.x, noteCoords.y);
         await randomDelay(2000, 3000);
 
-        if (isPageAlive() && await dismissPremiumModal(page)) {
+        if (isPageAlive() && (await dismissPremiumModal(page))) {
           skipNote = true;
           await randomDelay(2000, 3000);
           if (isPageAlive() && !(await isDialogOpen())) {
             const currentUrl = page.url();
-            if (currentUrl.includes("/preload/custom-invite/") ||
-                currentUrl.includes("/mynetwork/invite-connect/")) {
+            if (
+              currentUrl.includes("/preload/custom-invite/") ||
+              currentUrl.includes("/mynetwork/invite-connect/")
+            ) {
               try {
-                await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+                await page.reload({
+                  waitUntil: "domcontentloaded",
+                  timeout: 60000,
+                });
                 await randomDelay(4000, 6000);
                 await waitForInviteDialog();
               } catch {}
             } else if (profileUrl) {
               const vanityMatch = profileUrl.match(/\/in\/([^\/\?]+)/);
               if (vanityMatch) {
-                await safeGoto(page, `https://www.linkedin.com/preload/custom-invite/?vanityName=${vanityMatch[1]}`);
+                await safeGoto(
+                  page,
+                  `https://www.linkedin.com/preload/custom-invite/?vanityName=${vanityMatch[1]}`,
+                );
                 await waitForInviteDialog();
               }
             }
@@ -818,9 +1044,12 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
 
       if (!skipNote && isPageAlive()) {
         try {
-          const noteField = page.locator('textarea[name="message"], #custom-message, textarea').first();
-          const fieldExists = await noteField.count() > 0;
-          const fieldVisible = fieldExists && await noteField.isVisible().catch(() => false);
+          const noteField = page
+            .locator('textarea[name="message"], #custom-message, textarea')
+            .first();
+          const fieldExists = (await noteField.count()) > 0;
+          const fieldVisible =
+            fieldExists && (await noteField.isVisible().catch(() => false));
 
           if (fieldVisible) {
             console.log(`   📝 Typing personal note...`);
@@ -847,13 +1076,18 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
       }
     }
 
-    if (!isPageAlive()) return { success: false, reason: "page_closed_before_send" };
+    if (!isPageAlive())
+      return { success: false, reason: "page_closed_before_send" };
 
     // STEP 3: Click Send
     console.log(`\n   ━━━ STEP 3: Click Send ━━━`);
     const sendSelectors = noteAdded
       ? ['button:has-text("Send invitation")', 'button:has-text("Send")']
-      : ['button:has-text("Send without a note")', 'button:has-text("Send invitation")', 'button:has-text("Send")'];
+      : [
+          'button:has-text("Send without a note")',
+          'button:has-text("Send invitation")',
+          'button:has-text("Send")',
+        ];
 
     let sent = false;
     for (const sel of sendSelectors) {
@@ -861,24 +1095,34 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
 
       try {
         const btn = page.locator(sel).first();
-        if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
+        if (
+          (await btn.count()) > 0 &&
+          (await btn.isVisible().catch(() => false))
+        ) {
           await btn.click({ force: true });
           await randomDelay(2500, 4000);
 
-          if (isPageAlive() && await dismissPremiumModal(page)) {
+          if (isPageAlive() && (await dismissPremiumModal(page))) {
             noteAdded = false;
             await randomDelay(2000, 3000);
             if (isPageAlive()) {
               const currentUrl = page.url();
-              if (currentUrl.includes("/preload/custom-invite/") ||
-                  currentUrl.includes("/mynetwork/invite-connect/")) {
+              if (
+                currentUrl.includes("/preload/custom-invite/") ||
+                currentUrl.includes("/mynetwork/invite-connect/")
+              ) {
                 try {
-                  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+                  await page.reload({
+                    waitUntil: "domcontentloaded",
+                    timeout: 60000,
+                  });
                   await randomDelay(3000, 5000);
                   await waitForInviteDialog();
                 } catch {}
               }
-              const swn = page.locator('button:has-text("Send without a note")').first();
+              const swn = page
+                .locator('button:has-text("Send without a note")')
+                .first();
               if ((await swn.count()) > 0) {
                 await swn.click({ force: true });
                 await randomDelay(2500, 4000);
@@ -888,7 +1132,9 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
 
           const confirmed = await verifyConnectionSent(page);
           if (confirmed) {
-            console.log(`   ✅ Connection sent! ${noteAdded ? "(WITH note)" : "(no note)"}`);
+            console.log(
+              `   ✅ Connection sent! ${noteAdded ? "(WITH note)" : "(no note)"}`,
+            );
           }
           sent = true;
           break;
@@ -899,7 +1145,8 @@ export async function sendConnectionRequest(page, personalNote = "", profileUrl 
     }
 
     if (!sent) {
-      if (await isAlreadyPending()) return { success: true, hadNote: noteAdded };
+      if (await isAlreadyPending())
+        return { success: true, hadNote: noteAdded };
       return { success: false, reason: "send_button_not_found" };
     }
 

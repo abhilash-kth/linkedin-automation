@@ -225,6 +225,8 @@ Data Flow in Simple Terms
  Updates every 6 hours from MongoDB
 
 
+
+###DAILY MONITORING COMMANDS:
 # See if PM2 is running
 pm2 status
 
@@ -239,3 +241,66 @@ pm2 restart linkedin-scheduler
 
 # Emergency stop
 pm2 stop linkedin-scheduler
+
+
+# See running status
+pm2 status
+
+# Watch live logs
+pm2 logs linkedin-scheduler
+
+# Last 100 lines
+pm2 logs linkedin-scheduler --lines 100
+
+# See only errors
+pm2 logs linkedin-scheduler --err
+
+# Interactive dashboard (best view)
+pm2 monit
+
+# Pause temporarily (e.g., you're using LinkedIn manually)
+pm2 stop linkedin-scheduler
+
+# Resume
+pm2 start linkedin-scheduler
+
+# Restart if stuck
+pm2 restart linkedin-scheduler
+
+# PRODUCTION MODE IS ACTIVE
+pm2 logs linkedin-scheduler --lines 60 --nostream
+
+# HOW PM2 WORKS (One-Time Setup):
+┌─────────────────────────────────────────────────────────┐
+│  YOU RUN ONCE:                                          │
+│  pm2 start ecosystem.config.cjs --env production        │
+│  pm2 save                                               │
+│  pm2-startup install                                    │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│  PM2 THEN:                                              │
+│  ✅ Keeps process running 24/7                          │
+│  ✅ Auto-restarts if it crashes                         │
+│  ✅ Survives PC restart (via pm2-startup)               │
+│  ✅ Runs cron jobs at scheduled times                   │
+│  ✅ You NEVER need to start it again                    │
+└─────────────────────────────────────────────────────────┘
+
+
+# DAILY MONITORING (2 minutes)
+
+# See running status (1 second check)
+pm2 status
+
+# Watch live logs (see what it's doing)
+pm2 logs linkedin-scheduler
+
+# See last 200 lines of activity
+pm2 logs linkedin-scheduler --lines 200
+
+# See only errors
+pm2 logs linkedin-scheduler --err
+
+# Interactive dashboard (pretty view)
+pm2 monit

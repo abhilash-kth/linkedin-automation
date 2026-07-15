@@ -1,6 +1,13 @@
-import { launchBrowser, closeBrowser } from "../services/browser/browser.service.js";
+import {
+  launchBrowser,
+  closeBrowser,
+} from "../services/browser/browser.service.js";
 import { checkSession } from "../services/browser/session.service.js";
-import { safeGoto, closeMessagingOverlays, humanRefreshPage } from "../services/browser/navigation.service.js";
+import {
+  safeGoto,
+  closeMessagingOverlays,
+  humanRefreshPage,
+} from "../services/browser/navigation.service.js";
 import { detectProfileStatus } from "../services/linkedin/profile.service.js";
 import {
   sendConnectionRequest,
@@ -9,11 +16,17 @@ import {
 } from "../services/linkedin/connection.service.js";
 import { attemptSendMessage } from "../services/linkedin/message.service.js";
 import { extractContactInfo } from "../services/linkedin/contact-info.service.js";
-import { getLeadsByStatus, updateLeadStatus } from "../services/database/lead-db.service.js";
+import {
+  getLeadsByStatus,
+  updateLeadStatus,
+} from "../services/database/lead-db.service.js";
 import { updateLeadInSheet } from "../services/integrations/google-sheets.service.js";
 import { callAI } from "../services/ai/claude.service.js";
 import { connectDB } from "../services/database/mongodb.service.js";
-import { behaveLikeHuman, randomDelay } from "../helpers/human-behavior.helper.js";
+import {
+  behaveLikeHuman,
+  randomDelay,
+} from "../helpers/human-behavior.helper.js";
 import Lead from "../models/Lead.model.js";
 
 // ═══════════════════════════════════════════════════════════════
@@ -112,7 +125,13 @@ Hi Sarah, saw your post on AI adoption — really thoughtful take. Would love to
 
 Your note:`;
 
-  return await callAIWithValidation(prompt, firstName, 40, 280, "connection note");
+  return await callAIWithValidation(
+    prompt,
+    firstName,
+    40,
+    280,
+    "connection note",
+  );
 }
 
 /**
@@ -197,8 +216,13 @@ Your subject:`;
 
     // Bad patterns
     const badPatterns = [
-      /^write/i, /^good example/i, /^here/i, /context:/i,
-      /^the subject/i, /^example/i, /partnership opportunity/i,
+      /^write/i,
+      /^good example/i,
+      /^here/i,
+      /context:/i,
+      /^the subject/i,
+      /^example/i,
+      /partnership opportunity/i,
     ];
     if (badPatterns.some((p) => p.test(subject))) {
       if (attempt < 3) continue;
@@ -249,13 +273,25 @@ Hi Sarah, loved your post on scaling AI infrastructure — we've been solving si
 
 Your message:`;
 
-  return await callAIWithValidation(prompt, firstName, 100, 500, "InMail message");
+  return await callAIWithValidation(
+    prompt,
+    firstName,
+    100,
+    500,
+    "InMail message",
+  );
 }
 
 /**
  * Unified AI caller with validation (name check, length check, leak detection)
  */
-async function callAIWithValidation(prompt, firstName, minLen, maxLen, purpose) {
+async function callAIWithValidation(
+  prompt,
+  firstName,
+  minLen,
+  maxLen,
+  purpose,
+) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     const result = await callAI(prompt, { maxTokens: 400, temperature: 0.7 });
     if (!result.success) {
@@ -267,20 +303,39 @@ async function callAIWithValidation(prompt, firstName, minLen, maxLen, purpose) 
 
     // Cleanup prefixes
     msg = msg.replace(/^["']|["']$/g, "");
-    msg = msg.replace(/^(Message|Note|Response|Subject|Your (message|note|subject|response)):\s*/i, "");
+    msg = msg.replace(
+      /^(Message|Note|Response|Subject|Your (message|note|subject|response)):\s*/i,
+      "",
+    );
     msg = msg.replace(/^Here'?s.*?:\s*/i, "");
 
     // Leak detection
     const badPatterns = [
-      /we need to/i, /you just connected/i, /your task/i,
-      /must start with/i, /the message should/i, /below is context/i,
-      /under \d+ characters/i, /warm follow-up/i, /^context:/i,
-      /^rules:/i, /^write/i, /^you are/i, /good example/i, /example:/i,
-      /now write/i, /^person's/i, /the note should/i, /the subject/i,
+      /we need to/i,
+      /you just connected/i,
+      /your task/i,
+      /must start with/i,
+      /the message should/i,
+      /below is context/i,
+      /under \d+ characters/i,
+      /warm follow-up/i,
+      /^context:/i,
+      /^rules:/i,
+      /^write/i,
+      /^you are/i,
+      /good example/i,
+      /example:/i,
+      /now write/i,
+      /^person's/i,
+      /the note should/i,
+      /the subject/i,
     ];
     if (badPatterns.some((p) => p.test(msg))) {
       console.log(`   ⚠️  Attempt ${attempt}/3: ${purpose} — AI leaked prompt`);
-      if (attempt < 3) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
       return null;
     }
 
@@ -289,19 +344,26 @@ async function callAIWithValidation(prompt, firstName, minLen, maxLen, purpose) 
       const lowerMsg = msg.toLowerCase();
       const lowerName = firstName.toLowerCase();
       const validStarts = [
-        `hi ${lowerName}`, `hey ${lowerName}`, `hello ${lowerName}`,
-        `thanks for connecting, ${lowerName}`, `thanks for connecting ${lowerName}`,
+        `hi ${lowerName}`,
+        `hey ${lowerName}`,
+        `hello ${lowerName}`,
+        `thanks for connecting, ${lowerName}`,
+        `thanks for connecting ${lowerName}`,
         lowerName + ",",
       ];
       if (!validStarts.some((s) => lowerMsg.startsWith(s))) {
-        console.log(`   ⚠️  Attempt ${attempt}/3: ${purpose} — doesn't start with "${firstName}"`);
+        console.log(
+          `   ⚠️  Attempt ${attempt}/3: ${purpose} — doesn't start with "${firstName}"`,
+        );
         if (attempt < 3) continue;
       }
     }
 
     // Length check
     if (msg.length < minLen || msg.length > maxLen + 50) {
-      console.log(`   ⚠️  Attempt ${attempt}/3: ${purpose} — bad length (${msg.length})`);
+      console.log(
+        `   ⚠️  Attempt ${attempt}/3: ${purpose} — bad length (${msg.length})`,
+      );
       if (attempt < 3) continue;
     }
 
@@ -316,10 +378,16 @@ async function callAIWithValidation(prompt, firstName, minLen, maxLen, purpose) 
 // MAIN BATCH FUNCTION
 // ═══════════════════════════════════════════════════════════════
 export async function sendConnectionBatch(accountId, actuallySend = false) {
-  console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
+  console.log(
+    `\n╔═══════════════════════════════════════════════════════════╗`,
+  );
   console.log(`║  CONNECTION BATCH — ${accountId.padEnd(38)}║`);
-  console.log(`║  Mode: ${(actuallySend ? "REAL SEND" : "SAFE (dry run)").padEnd(51)}║`);
-  console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+  console.log(
+    `║  Mode: ${(actuallySend ? "REAL SEND" : "SAFE (dry run)").padEnd(51)}║`,
+  );
+  console.log(
+    `╚═══════════════════════════════════════════════════════════╝\n`,
+  );
 
   await connectDB();
 
@@ -329,8 +397,12 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
   const messagesRemaining = MAX_MESSAGES_PER_DAY - todayMessages;
 
   console.log(`📊 TODAY'S ACTIVITY:`);
-  console.log(`   📨 Connections: ${todayConnections}/${MAX_CONNECTIONS_PER_DAY} (${connectionsRemaining} left)`);
-  console.log(`   💌 Messages: ${todayMessages}/${MAX_MESSAGES_PER_DAY} (${messagesRemaining} left)\n`);
+  console.log(
+    `   📨 Connections: ${todayConnections}/${MAX_CONNECTIONS_PER_DAY} (${connectionsRemaining} left)`,
+  );
+  console.log(
+    `   💌 Messages: ${todayMessages}/${MAX_MESSAGES_PER_DAY} (${messagesRemaining} left)\n`,
+  );
 
   if (connectionsRemaining <= 0) {
     console.log(`⛔ Daily connection limit reached\n`);
@@ -339,10 +411,13 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
 
   const commentedLeads = await getLeadsByStatus("commented", accountId);
   const discoveredLeads = await getLeadsByStatus("discovered", accountId);
-  const allLeads = [...commentedLeads, ...discoveredLeads]
-    .sort((a, b) => (b.conversionScore || 0) - (a.conversionScore || 0));
+  const allLeads = [...commentedLeads, ...discoveredLeads].sort(
+    (a, b) => (b.conversionScore || 0) - (a.conversionScore || 0),
+  );
 
-  console.log(`📊 LEADS: Commented=${commentedLeads.length}, Discovered=${discoveredLeads.length}, Total=${allLeads.length}\n`);
+  console.log(
+    `📊 LEADS: Commented=${commentedLeads.length}, Discovered=${discoveredLeads.length}, Total=${allLeads.length}\n`,
+  );
 
   const limit = Math.min(MAX_CONNECTIONS_PER_RUN, connectionsRemaining);
   const toProcess = allLeads.slice(0, limit);
@@ -356,8 +431,13 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
 
   const { context, page } = await launchBrowser(accountId);
   let stats = {
-    contactExtracted: 0, accepted: 0, connected: 0,
-    messaged: 0, inmail: 0, skipped: 0, failed: 0,
+    contactExtracted: 0,
+    accepted: 0,
+    connected: 0,
+    messaged: 0,
+    inmail: 0,
+    skipped: 0,
+    failed: 0,
   };
 
   try {
@@ -371,7 +451,9 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
       let messageSentThisLead = false; // ← CRITICAL: track per-lead to prevent double
 
       console.log(`\n${"━".repeat(63)}`);
-      console.log(`[${i + 1}/${toProcess.length}] ${lead.name} (${lead.conversionScore}% ${lead.scoreCategory})`);
+      console.log(
+        `[${i + 1}/${toProcess.length}] ${lead.name} (${lead.conversionScore}% ${lead.scoreCategory})`,
+      );
       console.log(`📍 ${lead.profileUrl}`);
       console.log(`${"━".repeat(63)}`);
 
@@ -394,27 +476,134 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
         await randomDelay(2000, 4000);
 
         // ═══ STEP 2: Extract contact info if missing ═══
-        if (!hasContactInfo(lead)) {
-          console.log(`\n📇 STEP 1: Extract contact info`);
-          const contactInfo = await extractContactInfo(page, lead.profileUrl);
-          const updates = {}, sheetUpdates = {};
+        // if (!hasContactInfo(lead)) {
+        //   console.log(`\n📇 STEP 1: Extract contact info`);
+        //   const contactInfo = await extractContactInfo(page, lead.profileUrl);
+        //   const updates = {},
+        //     sheetUpdates = {};
 
-          if (contactInfo.email) { updates.email = contactInfo.email; sheetUpdates.F = contactInfo.email; }
-          if (contactInfo.phone) { updates.phone = contactInfo.phone; sheetUpdates.G = contactInfo.phone; }
-          if (contactInfo.website) { updates.website = contactInfo.website; sheetUpdates.H = contactInfo.website; }
-          if (contactInfo.location && !lead.location) { updates.location = contactInfo.location; sheetUpdates.E = contactInfo.location; }
+        //   if (contactInfo.email) {
+        //     updates.email = contactInfo.email;
+        //     sheetUpdates.F = contactInfo.email;
+        //   }
+        //   if (contactInfo.phone) {
+        //     updates.phone = contactInfo.phone;
+        //     sheetUpdates.G = contactInfo.phone;
+        //   }
+        //   if (contactInfo.website) {
+        //     updates.website = contactInfo.website;
+        //     sheetUpdates.H = contactInfo.website;
+        //   }
+        //   if (contactInfo.location && !lead.location) {
+        //     updates.location = contactInfo.location;
+        //     sheetUpdates.E = contactInfo.location;
+        //   }
 
-          if (Object.keys(updates).length > 0) {
-            await updateLeadStatus(lead.profileUrl, lead.status, updates);
-            try { await updateLeadInSheet(lead.profileUrl, sheetUpdates); } catch {}
-            stats.contactExtracted++;
-            Object.assign(lead, updates);
-          }
-          await randomDelay(2000, 4000);
-        } else {
-          console.log(`\n📇 STEP 1: Contact info already in DB`);
-          if (lead.email) console.log(`   📧 ${lead.email}`);
+        //   if (Object.keys(updates).length > 0) {
+        //     await updateLeadStatus(lead.profileUrl, lead.status, updates);
+        //     try {
+        //       await updateLeadInSheet(lead.profileUrl, sheetUpdates);
+        //     } catch {}
+        //     stats.contactExtracted++;
+        //     Object.assign(lead, updates);
+        //   }
+        //   await randomDelay(2000, 4000);
+        // } else {
+        //   console.log(`\n📇 STEP 1: Contact info already in DB`);
+        //   if (lead.email) console.log(`   📧 ${lead.email}`);
+        // }
+
+        // ═══ STEP 2: HUMAN-LIKE CONTACT INFO BROWSING ═══
+        // Always click contact info first (like a real human checking who they're about to connect with)
+        // This mimics natural curiosity and helps avoid bot detection
+        console.log(`\n📇 STEP 1: Browse profile like a human`);
+
+        // Simulate reading the profile briefly (scroll down slowly)
+        console.log(`   📜 Scrolling to read profile...`);
+        for (let s = 0; s < 3; s++) {
+          await page.evaluate(() =>
+            window.scrollBy({ top: 200, behavior: "smooth" }),
+          );
+          await randomDelay(1000, 2000);
         }
+
+        // Scroll back up to see the "Contact info" link
+        await page.evaluate(() =>
+          window.scrollTo({ top: 0, behavior: "smooth" }),
+        );
+        await randomDelay(1500, 2500);
+
+        // ALWAYS extract contact info (whether we have it or not — natural human behavior)
+        console.log(`   🖱️  Clicking "Contact info" to check details...`);
+        const contactInfo = await extractContactInfo(page, lead.profileUrl);
+
+        const updates = {};
+        const sheetUpdates = {};
+        let newInfoFound = false;
+
+        // Compare with existing data — only update if we found NEW info
+        if (contactInfo.email && contactInfo.email !== lead.email) {
+          updates.email = contactInfo.email;
+          sheetUpdates.F = contactInfo.email;
+          newInfoFound = true;
+          console.log(`   📧 New email found: ${contactInfo.email}`);
+        }
+        if (contactInfo.phone && contactInfo.phone !== lead.phone) {
+          updates.phone = contactInfo.phone;
+          sheetUpdates.G = contactInfo.phone;
+          newInfoFound = true;
+          console.log(`   📱 New phone found: ${contactInfo.phone}`);
+        }
+        if (contactInfo.website && contactInfo.website !== lead.website) {
+          updates.website = contactInfo.website;
+          sheetUpdates.H = contactInfo.website;
+          newInfoFound = true;
+          console.log(`   🌐 New website found: ${contactInfo.website}`);
+        }
+        if (contactInfo.location && contactInfo.location !== lead.location) {
+          updates.location = contactInfo.location;
+          sheetUpdates.E = contactInfo.location;
+          newInfoFound = true;
+          console.log(`   📍 New location found: ${contactInfo.location}`);
+        }
+
+        if (newInfoFound) {
+          await updateLeadStatus(lead.profileUrl, lead.status, updates);
+          try {
+            await updateLeadInSheet(lead.profileUrl, sheetUpdates);
+          } catch {}
+          stats.contactExtracted++;
+          Object.assign(lead, updates);
+          console.log(`   💾 Updated DB + Sheet with new contact info`);
+        } else if (hasContactInfo(lead)) {
+          console.log(`   ✅ Contact info already up-to-date`);
+          if (lead.email) console.log(`      📧 ${lead.email}`);
+          if (lead.phone) console.log(`      📱 ${lead.phone}`);
+          if (lead.website) console.log(`      🌐 ${lead.website}`);
+        } else {
+          console.log(`   ℹ️  No contact info available on this profile`);
+        }
+
+        // Natural pause after viewing contact info (like reading it)
+        await randomDelay(3000, 5000);
+
+        // Scroll around a bit more to look "engaged" with the profile
+        console.log(`   📜 Scrolling to explore more of profile...`);
+        for (let s = 0; s < 2; s++) {
+          await page.evaluate(() =>
+            window.scrollBy({
+              top: 300 + Math.random() * 200,
+              behavior: "smooth",
+            }),
+          );
+          await randomDelay(1500, 2500);
+        }
+
+        // Scroll back to top for next steps (Connect button is at top)
+        await page.evaluate(() =>
+          window.scrollTo({ top: 0, behavior: "smooth" }),
+        );
+        await randomDelay(2000, 3500);
 
         // ═══ STEP 3: Check incoming invitation ═══
         console.log(`\n💌 STEP 2: Check for incoming invitation`);
@@ -430,14 +619,21 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
             continue;
           }
 
-          const acceptResult = await acceptIncomingInvitation(page, { x: incoming.x, y: incoming.y });
+          const acceptResult = await acceptIncomingInvitation(page, {
+            x: incoming.x,
+            y: incoming.y,
+          });
 
           if (acceptResult.success) {
             stats.accepted++;
-            await updateLeadStatus(lead.profileUrl, "accepted", { connectionAcceptedAt: new Date() });
+            await updateLeadStatus(lead.profileUrl, "accepted", {
+              connectionAcceptedAt: new Date(),
+            });
             try {
               await updateLeadInSheet(lead.profileUrl, {
-                V: "accepted", W: new Date().toISOString().split("T")[0], AO: "accepted",
+                V: "accepted",
+                W: new Date().toISOString().split("T")[0],
+                AO: "accepted",
               });
             } catch {}
 
@@ -452,17 +648,25 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
               const warmMsg = await generateWarmMessage(lead);
               if (warmMsg) {
                 console.log(`   📝 Message: "${warmMsg.substring(0, 80)}..."`);
-                const msgResult = await attemptSendMessage(page, warmMsg, "", true, accountId);
+                const msgResult = await attemptSendMessage(
+                  page,
+                  warmMsg,
+                  "",
+                  true,
+                  accountId,
+                );
                 if (msgResult.success && msgResult.action === "message_sent") {
                   console.log(`   ✅ Warm message sent!`);
                   stats.messaged++;
                   messageSentThisLead = true;
                   await updateLeadStatus(lead.profileUrl, "message_sent", {
-                    warmingMessage: warmMsg, messageSentAt: new Date(),
+                    warmingMessage: warmMsg,
+                    messageSentAt: new Date(),
                   });
                   try {
                     await updateLeadInSheet(lead.profileUrl, {
-                      X: "Yes", Y: warmMsg,
+                      X: "Yes",
+                      Y: warmMsg,
                       Z: new Date().toISOString().split("T")[0],
                       AO: "message_sent",
                     });
@@ -486,24 +690,39 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
         // Already 1st degree
         if (status.isFirstDegree) {
           console.log(`   ✅ Already 1st degree`);
-          await updateLeadStatus(lead.profileUrl, "accepted", { connectionAcceptedAt: new Date() });
+          await updateLeadStatus(lead.profileUrl, "accepted", {
+            connectionAcceptedAt: new Date(),
+          });
 
-          if (actuallySend && status.hasMessage && messagesRemaining > stats.messaged) {
+          if (
+            actuallySend &&
+            status.hasMessage &&
+            messagesRemaining > stats.messaged
+          ) {
             console.log(`   🤖 Generating warm message for 1st degree...`);
             const warmMsg = await generateWarmMessage(lead);
             if (warmMsg) {
               console.log(`   📝 "${warmMsg.substring(0, 80)}..."`);
-              const msgResult = await attemptSendMessage(page, warmMsg, "", true, accountId);
+              const msgResult = await attemptSendMessage(
+                page,
+                warmMsg,
+                "",
+                true,
+                accountId,
+              );
               if (msgResult.success && msgResult.action === "message_sent") {
                 stats.messaged++;
                 messageSentThisLead = true;
                 await updateLeadStatus(lead.profileUrl, "message_sent", {
-                  warmingMessage: warmMsg, messageSentAt: new Date(),
+                  warmingMessage: warmMsg,
+                  messageSentAt: new Date(),
                 });
                 try {
                   await updateLeadInSheet(lead.profileUrl, {
-                    V: "accepted", W: new Date().toISOString().split("T")[0],
-                    X: "Yes", Y: warmMsg,
+                    V: "accepted",
+                    W: new Date().toISOString().split("T")[0],
+                    X: "Yes",
+                    Y: warmMsg,
                     Z: new Date().toISOString().split("T")[0],
                     AO: "message_sent",
                   });
@@ -514,7 +733,9 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
           } else {
             try {
               await updateLeadInSheet(lead.profileUrl, {
-                V: "accepted", W: new Date().toISOString().split("T")[0], AO: "accepted",
+                V: "accepted",
+                W: new Date().toISOString().split("T")[0],
+                AO: "accepted",
               });
             } catch {}
           }
@@ -545,12 +766,16 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
           break;
         }
 
-        console.log(`\n📨 STEP 4: Send connection request (${currentSent + 1}/${MAX_CONNECTIONS_PER_DAY} today)`);
+        console.log(
+          `\n📨 STEP 4: Send connection request (${currentSent + 1}/${MAX_CONNECTIONS_PER_DAY} today)`,
+        );
         console.log(`   🤖 Generating AI note...`);
         const connectionNote = await generateConnectionNote(lead);
 
         if (connectionNote) {
-          console.log(`   📝 Note (${connectionNote.length} chars): "${connectionNote.substring(0, 80)}..."`);
+          console.log(
+            `   📝 Note (${connectionNote.length} chars): "${connectionNote.substring(0, 80)}..."`,
+          );
         } else {
           console.log(`   ⚠️  AI failed — sending without note`);
         }
@@ -562,11 +787,83 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
           continue;
         }
 
+        // console.log(`   📨 Sending connection request...`);
+        // const connResult = await sendConnectionRequest(page, connectionNote || "", lead.profileUrl);
+
+        // if (!connResult.success) {
+        //   console.log(`   ❌ Connection failed: ${connResult.reason}`);
+        //   stats.failed++;
+        //   await updateLeadStatus(lead.profileUrl, lead.status, {
+        //     lastError: connResult.reason,
+        //     retryCount: (lead.retryCount || 0) + 1,
+        //   });
+        //   await coolDown();
+        //   continue;
+        // }
+
         console.log(`   📨 Sending connection request...`);
-        const connResult = await sendConnectionRequest(page, connectionNote || "", lead.profileUrl);
+        const connResult = await sendConnectionRequest(
+          page,
+          connectionNote || "",
+          lead.profileUrl,
+        );
 
         if (!connResult.success) {
           console.log(`   ❌ Connection failed: ${connResult.reason}`);
+
+          // If Connect isn't available but Message is, try InMail directly
+          if (
+            connResult.reason === "connect_button_not_found" &&
+            status.hasMessage
+          ) {
+            console.log(
+              `   💎 Trying InMail as fallback (Connect not available)...`,
+            );
+
+            if (messagesRemaining > stats.messaged) {
+              const inMailSubject = await generateInMailSubject(lead);
+              const inMailMsg = await generateInMailMessage(lead);
+
+              if (inMailMsg) {
+                console.log(`   📝 Subject: "${inMailSubject}"`);
+                console.log(
+                  `   📝 Message: "${inMailMsg.substring(0, 80)}..."`,
+                );
+
+                const msgResult = await attemptSendMessage(
+                  page,
+                  inMailMsg,
+                  inMailSubject,
+                  true,
+                  accountId,
+                );
+
+                if (msgResult.success && msgResult.action === "message_sent") {
+                  stats.inmail++;
+                  stats.messaged++;
+                  console.log(`   ✅ InMail sent (Connect fallback)!`);
+
+                  await updateLeadStatus(lead.profileUrl, "message_sent", {
+                    warmingMessage: inMailMsg,
+                    messageSentAt: new Date(),
+                  });
+
+                  try {
+                    await updateLeadInSheet(lead.profileUrl, {
+                      AA: "Yes",
+                      AB: inMailMsg,
+                      AC: new Date().toISOString().split("T")[0],
+                      AO: "message_sent",
+                    });
+                  } catch {}
+
+                  await coolDown();
+                  continue;
+                }
+              }
+            }
+          }
+
           stats.failed++;
           await updateLeadStatus(lead.profileUrl, lead.status, {
             lastError: connResult.reason,
@@ -576,7 +873,9 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
           continue;
         }
 
-        console.log(`   ✅ Connection sent! (Note: ${connResult.hadNote ? "yes" : "no"})`);
+        console.log(
+          `   ✅ Connection sent! (Note: ${connResult.hadNote ? "yes" : "no"})`,
+        );
         stats.connected++;
         await updateLeadStatus(lead.profileUrl, "connection_sent", {
           connectionNote: connectionNote || "",
@@ -584,9 +883,11 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
         });
         try {
           await updateLeadInSheet(lead.profileUrl, {
-            S: "Yes", T: connectionNote || "",
+            S: "Yes",
+            T: connectionNote || "",
             U: new Date().toISOString().split("T")[0],
-            V: "pending", AO: "connection_sent",
+            V: "pending",
+            AO: "connection_sent",
           });
         } catch {}
 
@@ -651,7 +952,13 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
 
           console.log(`   📝 Message: "${inMailMsg.substring(0, 80)}..."`);
 
-          const msgResult = await attemptSendMessage(page, inMailMsg, subject, true, accountId);
+          const msgResult = await attemptSendMessage(
+            page,
+            inMailMsg,
+            subject,
+            true,
+            accountId,
+          );
 
           if (msgResult.success && msgResult.action === "message_sent") {
             stats.inmail++;
@@ -659,14 +966,19 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
             messageSentThisLead = true;
             console.log(`   ✅ InMail sent!`);
 
-            await updateLeadStatus(lead.profileUrl, "connection_and_message_sent", {
-              warmingMessage: inMailMsg,
-              messageSentAt: new Date(),
-            });
+            await updateLeadStatus(
+              lead.profileUrl,
+              "connection_and_message_sent",
+              {
+                warmingMessage: inMailMsg,
+                messageSentAt: new Date(),
+              },
+            );
 
             try {
               await updateLeadInSheet(lead.profileUrl, {
-                AA: "Yes", AB: inMailMsg,
+                AA: "Yes",
+                AB: inMailMsg,
                 AC: new Date().toISOString().split("T")[0],
                 AO: "connection_and_message_sent",
               });
@@ -684,8 +996,10 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
       } catch (err) {
         console.log(`❌ Error: ${err.message}`);
         stats.failed++;
-        if (err.message.includes("browser has been closed") ||
-            err.message.includes("Target page")) {
+        if (
+          err.message.includes("browser has been closed") ||
+          err.message.includes("Target page")
+        ) {
           console.log(`💥 Browser died — stopping`);
           break;
         }
@@ -696,21 +1010,43 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
     const finalConnections = await countTodayConnections(accountId);
     const finalMessages = await countTodayMessages(accountId);
 
-    console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
-    console.log(`║  CONNECTION BATCH COMPLETE                                 ║`);
-    console.log(`║                                                            ║`);
-    console.log(`║  📇 Contact extracted: ${String(stats.contactExtracted).padEnd(35)}║`);
-    console.log(`║  💌 Accepted incoming: ${String(stats.accepted).padEnd(35)}║`);
-    console.log(`║  ✅ New connections: ${String(stats.connected).padEnd(37)}║`);
+    console.log(
+      `\n╔═══════════════════════════════════════════════════════════╗`,
+    );
+    console.log(
+      `║  CONNECTION BATCH COMPLETE                                 ║`,
+    );
+    console.log(
+      `║                                                            ║`,
+    );
+    console.log(
+      `║  📇 Contact extracted: ${String(stats.contactExtracted).padEnd(35)}║`,
+    );
+    console.log(
+      `║  💌 Accepted incoming: ${String(stats.accepted).padEnd(35)}║`,
+    );
+    console.log(
+      `║  ✅ New connections: ${String(stats.connected).padEnd(37)}║`,
+    );
     console.log(`║  💬 Messages sent: ${String(stats.messaged).padEnd(39)}║`);
     console.log(`║  💎 InMails sent: ${String(stats.inmail).padEnd(40)}║`);
     console.log(`║  ⏭️  Skipped: ${String(stats.skipped).padEnd(44)}║`);
     console.log(`║  ❌ Failed: ${String(stats.failed).padEnd(47)}║`);
-    console.log(`║                                                            ║`);
-    console.log(`║  📊 TODAY'S TOTALS:                                        ║`);
-    console.log(`║     Connections: ${String(finalConnections).padEnd(5)}/ ${MAX_CONNECTIONS_PER_DAY}                                   ║`);
-    console.log(`║     Messages: ${String(finalMessages).padEnd(8)}/ ${MAX_MESSAGES_PER_DAY}                                   ║`);
-    console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+    console.log(
+      `║                                                            ║`,
+    );
+    console.log(
+      `║  📊 TODAY'S TOTALS:                                        ║`,
+    );
+    console.log(
+      `║     Connections: ${String(finalConnections).padEnd(5)}/ ${MAX_CONNECTIONS_PER_DAY}                                   ║`,
+    );
+    console.log(
+      `║     Messages: ${String(finalMessages).padEnd(8)}/ ${MAX_MESSAGES_PER_DAY}                                   ║`,
+    );
+    console.log(
+      `╚═══════════════════════════════════════════════════════════╝\n`,
+    );
   } catch (err) {
     console.error(`❌ Fatal: ${err.message}`);
   } finally {
@@ -723,7 +1059,10 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
  * Cooldown between profiles
  */
 async function coolDown() {
-  const cd = (COOLDOWN_MIN_SEC + Math.floor(Math.random() * (COOLDOWN_MAX_SEC - COOLDOWN_MIN_SEC))) * 1000;
+  const cd =
+    (COOLDOWN_MIN_SEC +
+      Math.floor(Math.random() * (COOLDOWN_MAX_SEC - COOLDOWN_MIN_SEC))) *
+    1000;
   console.log(`\n⏰ Cooling ${Math.floor(cd / 1000)}s before next profile...`);
   await new Promise((r) => setTimeout(r, cd));
 }
