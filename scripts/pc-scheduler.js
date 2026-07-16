@@ -2,9 +2,15 @@ import cron from "node-cron";
 import config from "../config/config.js";
 import { connectDB } from "../services/database/mongodb.service.js";
 import { taskQueue } from "../services/scheduler/task-queue.service.js";
-
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTS — defined first so all functions can use them
+// ═══════════════════════════════════════════════════════════════
+const ACCOUNT_ID = process.env.ACCOUNT_ID || "account_1";
+const ACTUALLY_SEND = process.env.ACTUALLY_SEND === "true";
+const ACTUALLY_COMMENT = process.env.ACTUALLY_COMMENT === "true";
+const TZ = "Asia/Kolkata";
 
 const STATE_FILE = "./data/scheduler-state.json";
 
@@ -97,14 +103,9 @@ console.log(`\n╔════════════════════�
 console.log(`║  🚀 KRISCENT LINKEDIN AUTOMATION                           ║`);
 console.log(`║  Office Hours: 10:30 AM - 6:30 PM IST                      ║`);
 console.log(
-  `║  Started: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }).padEnd(48)}║`,
+  `║  Started: ${new Date().toLocaleString("en-IN", { timeZone: TZ }).padEnd(48)}║`,
 );
 console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
-
-const ACCOUNT_ID = process.env.ACCOUNT_ID || "account_1";
-const ACTUALLY_SEND = process.env.ACTUALLY_SEND === "true";
-const ACTUALLY_COMMENT = process.env.ACTUALLY_COMMENT === "true";
-const TZ = "Asia/Kolkata";
 
 console.log(`📊 Configuration:`);
 console.log(`   Account:       ${ACCOUNT_ID}`);
@@ -348,7 +349,7 @@ cron.schedule(
     console.log(`   ❌ Tasks failed: ${status.stats.failed}`);
     console.log(`   ⏭️  Tasks skipped: ${status.stats.skipped}`);
     console.log(
-      `   ⏱️  Total runtime: ${Math.floor(status.stats.totalRuntime / 60)} min`,
+      `   ⏱️  Total runtime: ${Math.floor(status.stats.totalRuntimeMin)} min`,
     );
     console.log(``);
     console.log(`   💤 Automation paused until tomorrow 10:30 AM`);
@@ -421,7 +422,7 @@ cron.schedule(
   () => {
     const now = new Date().toLocaleString("en-IN", { timeZone: TZ });
     console.log(`\n🌅 [${now}] New day starting — daily counters reset\n`);
-    // Task queue stats reset automatically on new day via its internal logic
+    taskQueue.resetStats();
   },
   { timezone: TZ },
 );
