@@ -17,8 +17,8 @@ module.exports = {
       env: {
         NODE_ENV: "development",
         ACCOUNT_ID: "account_1",
-        ACTUALLY_SEND: "false",
-        ACTUALLY_COMMENT: "false",
+        ACTUALLY_SEND: "true",
+        ACTUALLY_COMMENT: "true",
         HEADLESS: "false",           // ← Visible browser (dev/testing)
         TZ: "Asia/Kolkata",
       },

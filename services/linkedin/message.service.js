@@ -1,7 +1,515 @@
+// import { humanClick, humanTypeText } from "../../helpers/human-click.helper.js";
+// import { randomDelay } from "../../helpers/delay.helper.js";
+// import { dismissPremiumModal } from "./premium.service.js";
+// import { safeGoto } from "../browser/navigation.service.js";
+
+// export async function clickMessageButton(page) {
+//   console.log(`   🔎 Locating Message button on profile...`);
+
+//   let found = false;
+//   for (let attempt = 1; attempt <= 15; attempt++) {
+//     await page.waitForTimeout(1000);
+
+//     found = await page.evaluate(() => {
+//       const messageLinks = document.querySelectorAll(
+//         'a[href*="/messaging/compose/"]',
+//       );
+//       for (const el of messageLinks) {
+//         const rect = el.getBoundingClientRect();
+//         if (rect.width === 0 || rect.height === 0) continue;
+//         if (rect.x > 700 || rect.y < 400 || rect.y > 800) continue;
+//         el.setAttribute("data-outreach-msg-btn", "true");
+//         return true;
+//       }
+
+//       const allEls = [
+//         ...document.querySelectorAll("button"),
+//         ...document.querySelectorAll("a"),
+//       ];
+//       for (const el of allEls) {
+//         const rect = el.getBoundingClientRect();
+//         if (rect.width === 0 || rect.height === 0) continue;
+//         if (rect.x > 700 || rect.y < 400 || rect.y > 800) continue;
+//         const text = (el.textContent || "").trim();
+//         const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+//         if (
+//           text === "Message" ||
+//           aria === "message" ||
+//           aria.startsWith("message ")
+//         ) {
+//           el.setAttribute("data-outreach-msg-btn", "true");
+//           return true;
+//         }
+//       }
+//       return false;
+//     });
+
+//     if (found) {
+//       console.log(`   ✅ Message button tagged`);
+//       break;
+//     }
+
+//     if (attempt % 5 === 0) {
+//       console.log(`   ⏳ Still searching... ${attempt}/15s`);
+//     }
+//   }
+
+//   if (!found) {
+//     console.log(`   ❌ Message button not found`);
+//     return false;
+//   }
+
+//   console.log(`   📜 Scrolling into view...`);
+//   await page.evaluate(() => {
+//     const el = document.querySelector('[data-outreach-msg-btn="true"]');
+//     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+//   });
+//   await randomDelay(1500, 2500);
+
+//   const coords = await page.evaluate(() => {
+//     const el = document.querySelector('[data-outreach-msg-btn="true"]');
+//     if (!el) return null;
+//     const rect = el.getBoundingClientRect();
+//     return {
+//       x: Math.floor(rect.x + rect.width / 2),
+//       y: Math.floor(rect.y + rect.height / 2),
+//     };
+//   });
+
+//   if (!coords) return false;
+
+//   console.log(`   🖱️  Clicking at (${coords.x}, ${coords.y})...`);
+
+//   await page.mouse.move(coords.x, coords.y, { steps: 10 });
+//   await page.waitForTimeout(300 + Math.random() * 400);
+//   await page.mouse.click(coords.x, coords.y, {
+//     delay: 80 + Math.random() * 100,
+//   });
+//   await randomDelay(2500, 4000);
+
+//   let composerOpened = await page.evaluate(() => {
+//     const el = document.querySelector(
+//       '.msg-form__contenteditable, [contenteditable="true"][role="textbox"]',
+//     );
+//     return el && el.getBoundingClientRect().width > 0;
+//   });
+
+//   console.log(`   📊 After mouse click: composer opened = ${composerOpened}`);
+
+//   if (!composerOpened) {
+//     console.log(`   🔄 Trying Playwright locator click...`);
+//     try {
+//       await page
+//         .locator('[data-outreach-msg-btn="true"]')
+//         .first()
+//         .click({ force: true, timeout: 5000 });
+//       await randomDelay(2500, 4000);
+//       composerOpened = await page.evaluate(() => {
+//         const el = document.querySelector(
+//           '.msg-form__contenteditable, [contenteditable="true"][role="textbox"]',
+//         );
+//         return el && el.getBoundingClientRect().width > 0;
+//       });
+//       console.log(
+//         `   📊 After locator click: composer opened = ${composerOpened}`,
+//       );
+//     } catch (err) {
+//       console.log(`   ⚠️  Locator click failed: ${err.message}`);
+//     }
+//   }
+
+//   if (!composerOpened) {
+//     console.log(`   🔄 Trying dispatchEvent...`);
+//     await page.evaluate(() => {
+//       const el = document.querySelector('[data-outreach-msg-btn="true"]');
+//       if (el) {
+//         const rect = el.getBoundingClientRect();
+//         const x = rect.x + rect.width / 2;
+//         const y = rect.y + rect.height / 2;
+//         ["mousedown", "mouseup", "click"].forEach((type) => {
+//           el.dispatchEvent(
+//             new MouseEvent(type, {
+//               view: window,
+//               bubbles: true,
+//               cancelable: true,
+//               clientX: x,
+//               clientY: y,
+//               button: 0,
+//             }),
+//           );
+//         });
+//       }
+//     });
+//     await randomDelay(2500, 4000);
+
+//     composerOpened = await page.evaluate(() => {
+//       const el = document.querySelector(
+//         '.msg-form__contenteditable, [contenteditable="true"][role="textbox"]',
+//       );
+//       return el && el.getBoundingClientRect().width > 0;
+//     });
+//     console.log(
+//       `   📊 After dispatchEvent: composer opened = ${composerOpened}`,
+//     );
+//   }
+
+//   if (!composerOpened) {
+//     console.log(`   🔄 Navigating to messaging URL...`);
+//     const messagingUrl = await page.evaluate(() => {
+//       const el = document.querySelector('[data-outreach-msg-btn="true"]');
+//       if (!el) return null;
+//       if (el.tagName === "A" && el.getAttribute("href"))
+//         return el.getAttribute("href");
+//       let current = el;
+//       for (let i = 0; i < 5; i++) {
+//         if (current.parentElement) {
+//           current = current.parentElement;
+//           if (current.tagName === "A" && current.getAttribute("href"))
+//             return current.getAttribute("href");
+//         } else break;
+//       }
+//       return null;
+//     });
+
+//     if (messagingUrl) {
+//       const fullUrl = messagingUrl.startsWith("/")
+//         ? "https://www.linkedin.com" + messagingUrl
+//         : messagingUrl;
+//       console.log(`   🔗 Navigating to: ${fullUrl}`);
+//       await safeGoto(page, fullUrl);
+//       await randomDelay(3000, 5000);
+//     }
+//   }
+
+//   return true;
+// }
+
+// export async function sendMessageViaComposer(
+//   page,
+//   messageText,
+//   subject,
+//   actuallySend,
+//   accountId = "debug",
+// ) {
+//   console.log(`   ⏳ Waiting for composer...`);
+
+//   let composerReady = false;
+//   let composerInfo = null;
+
+//   for (let attempt = 1; attempt <= 25; attempt++) {
+//     await page.waitForTimeout(1000);
+
+//     if (attempt === 3 || attempt === 8 || attempt === 15) {
+//       await dismissPremiumModal(page);
+//     }
+
+//     composerInfo = await page.evaluate(() => {
+//       const primary = document.querySelector(".msg-form__contenteditable");
+//       if (primary) {
+//         const rect = primary.getBoundingClientRect();
+//         if (rect.width > 30 && rect.height > 15) {
+//           return {
+//             found: true,
+//             selector: ".msg-form__contenteditable",
+//             x: Math.floor(rect.x + rect.width / 2),
+//             y: Math.floor(rect.y + rect.height / 2),
+//             w: Math.floor(rect.width),
+//             h: Math.floor(rect.height),
+//             hasSubject: !!document.querySelector(
+//               'input.msg-form__subject, input[name="subject"]',
+//             ),
+//           };
+//         }
+//       }
+
+//       const fallbacks = [
+//         '[contenteditable="true"][role="textbox"]',
+//         'div[contenteditable="true"][aria-label*="message" i]',
+//         'div[contenteditable="true"][aria-label*="Write" i]',
+//       ];
+
+//       for (const sel of fallbacks) {
+//         const els = document.querySelectorAll(sel);
+//         for (const el of els) {
+//           const rect = el.getBoundingClientRect();
+//           if (rect.width > 30 && rect.height > 15) {
+//             return {
+//               found: true,
+//               selector: sel,
+//               x: Math.floor(rect.x + rect.width / 2),
+//               y: Math.floor(rect.y + rect.height / 2),
+//               w: Math.floor(rect.width),
+//               h: Math.floor(rect.height),
+//               hasSubject: !!document.querySelector(
+//                 'input.msg-form__subject, input[name="subject"]',
+//               ),
+//             };
+//           }
+//         }
+//       }
+//       return { found: false };
+//     });
+
+//     if (composerInfo.found) {
+//       console.log(
+//         `   ✅ Composer ready after ${attempt}s (${composerInfo.w}x${composerInfo.h})`,
+//       );
+//       console.log(`   📝 Has subject: ${composerInfo.hasSubject}`);
+//       composerReady = true;
+//       break;
+//     }
+
+//     if (attempt % 5 === 0) {
+//       console.log(`   ⏳ Still waiting... ${attempt}/25s`);
+//       try {
+//         await page.screenshot({
+//           path: `./profiles/${accountId}/debug-composer-${attempt}.png`,
+//         });
+//       } catch {}
+//     }
+//   }
+
+//   if (!composerReady) {
+//     if (await dismissPremiumModal(page)) {
+//       return { success: false, reason: "premium_required_for_inmail" };
+//     }
+//     return { success: false, reason: "composer_never_appeared" };
+//   }
+
+//   await randomDelay(1000, 2000);
+
+//   // Fill subject
+//   if (composerInfo.hasSubject && subject && subject.length > 0) {
+//     console.log(`   ✍️  Filling subject: "${subject.substring(0, 60)}"`);
+//     await page.evaluate(() => {
+//       const f = document.querySelector(
+//         'input.msg-form__subject, input[name="subject"]',
+//       );
+//       if (f) {
+//         f.focus();
+//         f.click();
+//       }
+//     });
+//     await randomDelay(500, 900);
+//     await page.keyboard.press("Control+a");
+//     await page.keyboard.press("Delete");
+//     await humanTypeText(page, subject);
+//     await randomDelay(800, 1500);
+//     console.log(`   ✅ Subject filled`);
+//   }
+
+//   // Click composer
+//   console.log(`   🖱️  Clicking composer...`);
+//   await humanClick(page, composerInfo.x, composerInfo.y);
+//   await randomDelay(800, 1500);
+
+//   await page.evaluate((sel) => {
+//     const el = document.querySelector(sel);
+//     if (el) {
+//       el.focus();
+//       el.click();
+//     }
+//   }, composerInfo.selector);
+//   await randomDelay(400, 800);
+
+//   await page.keyboard.press("Control+a");
+//   await page.keyboard.press("Delete");
+//   await randomDelay(300, 600);
+
+//   await page.evaluate((sel) => {
+//     const el = document.querySelector(sel);
+//     if (el) {
+//       el.focus();
+//       const range = document.createRange();
+//       const selection = window.getSelection();
+//       range.selectNodeContents(el);
+//       range.collapse(false);
+//       selection.removeAllRanges();
+//       selection.addRange(range);
+//     }
+//   }, composerInfo.selector);
+//   await randomDelay(400, 800);
+
+//   console.log(`   ⌨️  Typing message (${messageText.length} chars)...`);
+//   await humanTypeText(page, messageText);
+//   await randomDelay(1500, 2500);
+
+//   const typedContent = await page.evaluate((sel) => {
+//     const el = document.querySelector(sel);
+//     return el ? (el.textContent || "").trim().length : 0;
+//   }, composerInfo.selector);
+
+//   console.log(`   📊 Chars typed: ${typedContent}`);
+
+//   if (typedContent === 0) {
+//     console.log(`   ⚠️  JS insertText fallback...`);
+//     await page.evaluate(
+//       (data) => {
+//         const el = document.querySelector(data.sel);
+//         if (!el) return;
+//         el.focus();
+//         try {
+//           document.execCommand("insertText", false, data.text);
+//         } catch {}
+//         if ((el.textContent || "").trim().length === 0) {
+//           el.innerHTML = `<p>${data.text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+//           el.dispatchEvent(new Event("input", { bubbles: true }));
+//         }
+//       },
+//       { sel: composerInfo.selector, text: messageText },
+//     );
+//     await randomDelay(1000, 1500);
+//   }
+
+//   console.log(`   ✅ Message in composer`);
+
+//   const sendState = await page.evaluate(() => {
+//     const sels = [
+//       "button.msg-form__send-btn",
+//       "button.msg-form__send-button",
+//       'button[aria-label="Send message"]',
+//     ];
+//     for (const sel of sels) {
+//       const btns = document.querySelectorAll(sel);
+//       for (const btn of btns) {
+//         const rect = btn.getBoundingClientRect();
+//         if (rect.width > 0 && rect.height > 0) {
+//           return {
+//             exists: true,
+//             selector: sel,
+//             disabled: btn.hasAttribute("disabled"),
+//             x: Math.floor(rect.x + rect.width / 2),
+//             y: Math.floor(rect.y + rect.height / 2),
+//           };
+//         }
+//       }
+//     }
+//     return { exists: false };
+//   });
+
+//   console.log(
+//     `   📊 Send btn: exists=${sendState.exists}, disabled=${sendState.disabled}`,
+//   );
+
+//   // Check for InMail credit exhaustion popup BEFORE clicking send
+//   const inMailBlocked = await page.evaluate(() => {
+//     const text = (document.body.innerText || "").toLowerCase();
+//     return (
+//       text.includes("out of free inmail") ||
+//       text.includes("no inmail credits") ||
+//       text.includes("upgrade to premium")
+//     );
+//   });
+
+//   if (inMailBlocked) {
+//     console.log(`   💎 Out of InMail credits — skipping send`);
+//     return { success: false, reason: "premium_required_for_inmail" };
+//   }
+
+//   if (actuallySend) {
+//     if (!sendState.exists)
+//       return { success: false, reason: "send_button_missing" };
+
+//     if (sendState.disabled) {
+//       await page.evaluate((sel) => {
+//         const el = document.querySelector(sel);
+//         if (el) {
+//           el.focus();
+//           el.click();
+//         }
+//       }, composerInfo.selector);
+//       await page.keyboard.press("End");
+//       await page.keyboard.type(" ");
+//       await page.waitForTimeout(400);
+//       await page.keyboard.press("Backspace");
+//       await page.waitForTimeout(800);
+//     }
+
+//     console.log(`   🖱️  Clicking send...`);
+//     await humanClick(page, sendState.x, sendState.y);
+//     await randomDelay(3000, 5000);
+
+//     if (await dismissPremiumModal(page)) {
+//       return { success: false, reason: "premium_required_for_inmail" };
+//     }
+
+//     console.log(`   ✅ Message SENT!`);
+//     return { success: true, action: "message_sent" };
+//   } else {
+//     console.log(`   ⚠️  Safe mode — typed but NOT sent`);
+//     return { success: true, action: "typed_only" };
+//   }
+// }
+
+// export async function attemptSendMessage(
+//   page,
+//   messageText,
+//   subject,
+//   actuallySend,
+//   accountId = "debug",
+// ) {
+//   console.log(`\n💬 Attempting to send message...`);
+
+//   const clicked = await clickMessageButton(page);
+//   if (!clicked) return { success: false, reason: "no_message_button" };
+
+//   await randomDelay(2000, 3500);
+//   await dismissPremiumModal(page);
+
+//   return await sendMessageViaComposer(
+//     page,
+//     messageText,
+//     subject,
+//     actuallySend,
+//     accountId,
+//   );
+// }
+
 import { humanClick, humanTypeText } from "../../helpers/human-click.helper.js";
 import { randomDelay } from "../../helpers/delay.helper.js";
 import { dismissPremiumModal } from "./premium.service.js";
 import { safeGoto } from "../browser/navigation.service.js";
+
+// ═══════════════════════════════════════════════════════════════
+// HELPER: Detect Premium/InMail block modal (any variant)
+// ═══════════════════════════════════════════════════════════════
+async function isInMailPremiumBlocked(page) {
+  try {
+    return await page.evaluate(() => {
+      const bodyText = (document.body.innerText || "").toLowerCase();
+      if (
+        bodyText.includes("out of free inmail") ||
+        bodyText.includes("no inmail credits") ||
+        bodyText.includes("upgrade to premium to send") ||
+        bodyText.includes("premium to reach out")
+      ) {
+        return true;
+      }
+
+      // Check for premium upsell modal
+      const modals = document.querySelectorAll(
+        '[role="dialog"], .artdeco-modal, .modal-upsell',
+      );
+      for (const m of modals) {
+        const rect = m.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const text = (m.textContent || "").toLowerCase();
+        if (
+          text.includes("try premium") ||
+          text.includes("upgrade to premium") ||
+          text.includes("out of free") ||
+          text.includes("inmail credit") ||
+          (text.includes("premium") && text.includes("upgrade"))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    });
+  } catch {
+    return false;
+  }
+}
 
 export async function clickMessageButton(page) {
   console.log(`   🔎 Locating Message button on profile...`);
@@ -11,9 +519,7 @@ export async function clickMessageButton(page) {
     await page.waitForTimeout(1000);
 
     found = await page.evaluate(() => {
-      const messageLinks = document.querySelectorAll(
-        'a[href*="/messaging/compose/"]',
-      );
+      const messageLinks = document.querySelectorAll('a[href*="/messaging/compose/"]');
       for (const el of messageLinks) {
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) continue;
@@ -32,11 +538,7 @@ export async function clickMessageButton(page) {
         if (rect.x > 700 || rect.y < 400 || rect.y > 800) continue;
         const text = (el.textContent || "").trim();
         const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-        if (
-          text === "Message" ||
-          aria === "message" ||
-          aria.startsWith("message ")
-        ) {
+        if (text === "Message" || aria === "message" || aria.startsWith("message ")) {
           el.setAttribute("data-outreach-msg-btn", "true");
           return true;
         }
@@ -44,14 +546,8 @@ export async function clickMessageButton(page) {
       return false;
     });
 
-    if (found) {
-      console.log(`   ✅ Message button tagged`);
-      break;
-    }
-
-    if (attempt % 5 === 0) {
-      console.log(`   ⏳ Still searching... ${attempt}/15s`);
-    }
+    if (found) break;
+    if (attempt % 5 === 0) console.log(`   ⏳ Still searching... ${attempt}/15s`);
   }
 
   if (!found) {
@@ -79,13 +575,17 @@ export async function clickMessageButton(page) {
   if (!coords) return false;
 
   console.log(`   🖱️  Clicking at (${coords.x}, ${coords.y})...`);
-
   await page.mouse.move(coords.x, coords.y, { steps: 10 });
   await page.waitForTimeout(300 + Math.random() * 400);
-  await page.mouse.click(coords.x, coords.y, {
-    delay: 80 + Math.random() * 100,
-  });
+  await page.mouse.click(coords.x, coords.y, { delay: 80 + Math.random() * 100 });
   await randomDelay(2500, 4000);
+
+  // ═══ CRITICAL: Check for Premium/InMail block BEFORE anything else ═══
+  if (await isInMailPremiumBlocked(page)) {
+    console.log(`   💎 InMail Premium block detected — dismissing`);
+    await dismissPremiumModal(page);
+    return "premium_blocked";
+  }
 
   let composerOpened = await page.evaluate(() => {
     const el = document.querySelector(
@@ -93,8 +593,6 @@ export async function clickMessageButton(page) {
     );
     return el && el.getBoundingClientRect().width > 0;
   });
-
-  console.log(`   📊 After mouse click: composer opened = ${composerOpened}`);
 
   if (!composerOpened) {
     console.log(`   🔄 Trying Playwright locator click...`);
@@ -104,18 +602,20 @@ export async function clickMessageButton(page) {
         .first()
         .click({ force: true, timeout: 5000 });
       await randomDelay(2500, 4000);
+
+      if (await isInMailPremiumBlocked(page)) {
+        console.log(`   💎 InMail Premium block detected — dismissing`);
+        await dismissPremiumModal(page);
+        return "premium_blocked";
+      }
+
       composerOpened = await page.evaluate(() => {
         const el = document.querySelector(
           '.msg-form__contenteditable, [contenteditable="true"][role="textbox"]',
         );
         return el && el.getBoundingClientRect().width > 0;
       });
-      console.log(
-        `   📊 After locator click: composer opened = ${composerOpened}`,
-      );
-    } catch (err) {
-      console.log(`   ⚠️  Locator click failed: ${err.message}`);
-    }
+    } catch {}
   }
 
   if (!composerOpened) {
@@ -142,46 +642,24 @@ export async function clickMessageButton(page) {
     });
     await randomDelay(2500, 4000);
 
+    if (await isInMailPremiumBlocked(page)) {
+      console.log(`   💎 InMail Premium block detected — dismissing`);
+      await dismissPremiumModal(page);
+      return "premium_blocked";
+    }
+
     composerOpened = await page.evaluate(() => {
       const el = document.querySelector(
         '.msg-form__contenteditable, [contenteditable="true"][role="textbox"]',
       );
       return el && el.getBoundingClientRect().width > 0;
     });
-    console.log(
-      `   📊 After dispatchEvent: composer opened = ${composerOpened}`,
-    );
   }
 
-  if (!composerOpened) {
-    console.log(`   🔄 Navigating to messaging URL...`);
-    const messagingUrl = await page.evaluate(() => {
-      const el = document.querySelector('[data-outreach-msg-btn="true"]');
-      if (!el) return null;
-      if (el.tagName === "A" && el.getAttribute("href"))
-        return el.getAttribute("href");
-      let current = el;
-      for (let i = 0; i < 5; i++) {
-        if (current.parentElement) {
-          current = current.parentElement;
-          if (current.tagName === "A" && current.getAttribute("href"))
-            return current.getAttribute("href");
-        } else break;
-      }
-      return null;
-    });
+  // NOTE: We no longer navigate to compose URL directly (that's what caused
+  // the false-positive "message sent" while connection was actually dropped)
 
-    if (messagingUrl) {
-      const fullUrl = messagingUrl.startsWith("/")
-        ? "https://www.linkedin.com" + messagingUrl
-        : messagingUrl;
-      console.log(`   🔗 Navigating to: ${fullUrl}`);
-      await safeGoto(page, fullUrl);
-      await randomDelay(3000, 5000);
-    }
-  }
-
-  return true;
+  return composerOpened ? true : false;
 }
 
 export async function sendMessageViaComposer(
@@ -199,8 +677,13 @@ export async function sendMessageViaComposer(
   for (let attempt = 1; attempt <= 25; attempt++) {
     await page.waitForTimeout(1000);
 
+    // Check Premium block each iteration
     if (attempt === 3 || attempt === 8 || attempt === 15) {
-      await dismissPremiumModal(page);
+      if (await isInMailPremiumBlocked(page)) {
+        console.log(`   💎 InMail Premium block detected during wait`);
+        await dismissPremiumModal(page);
+        return { success: false, reason: "premium_required_for_inmail" };
+      }
     }
 
     composerInfo = await page.evaluate(() => {
@@ -251,26 +734,16 @@ export async function sendMessageViaComposer(
     });
 
     if (composerInfo.found) {
-      console.log(
-        `   ✅ Composer ready after ${attempt}s (${composerInfo.w}x${composerInfo.h})`,
-      );
+      console.log(`   ✅ Composer ready (${composerInfo.w}x${composerInfo.h})`);
       console.log(`   📝 Has subject: ${composerInfo.hasSubject}`);
       composerReady = true;
       break;
     }
-
-    if (attempt % 5 === 0) {
-      console.log(`   ⏳ Still waiting... ${attempt}/25s`);
-      try {
-        await page.screenshot({
-          path: `./profiles/${accountId}/debug-composer-${attempt}.png`,
-        });
-      } catch {}
-    }
   }
 
   if (!composerReady) {
-    if (await dismissPremiumModal(page)) {
+    if (await isInMailPremiumBlocked(page)) {
+      await dismissPremiumModal(page);
       return { success: false, reason: "premium_required_for_inmail" };
     }
     return { success: false, reason: "composer_never_appeared" };
@@ -282,9 +755,7 @@ export async function sendMessageViaComposer(
   if (composerInfo.hasSubject && subject && subject.length > 0) {
     console.log(`   ✍️  Filling subject: "${subject.substring(0, 60)}"`);
     await page.evaluate(() => {
-      const f = document.querySelector(
-        'input.msg-form__subject, input[name="subject"]',
-      );
+      const f = document.querySelector('input.msg-form__subject, input[name="subject"]');
       if (f) {
         f.focus();
         f.click();
@@ -295,7 +766,6 @@ export async function sendMessageViaComposer(
     await page.keyboard.press("Delete");
     await humanTypeText(page, subject);
     await randomDelay(800, 1500);
-    console.log(`   ✅ Subject filled`);
   }
 
   // Click composer
@@ -316,20 +786,6 @@ export async function sendMessageViaComposer(
   await page.keyboard.press("Delete");
   await randomDelay(300, 600);
 
-  await page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (el) {
-      el.focus();
-      const range = document.createRange();
-      const selection = window.getSelection();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-  }, composerInfo.selector);
-  await randomDelay(400, 800);
-
   console.log(`   ⌨️  Typing message (${messageText.length} chars)...`);
   await humanTypeText(page, messageText);
   await randomDelay(1500, 2500);
@@ -339,10 +795,7 @@ export async function sendMessageViaComposer(
     return el ? (el.textContent || "").trim().length : 0;
   }, composerInfo.selector);
 
-  console.log(`   📊 Chars typed: ${typedContent}`);
-
   if (typedContent === 0) {
-    console.log(`   ⚠️  JS insertText fallback...`);
     await page.evaluate(
       (data) => {
         const el = document.querySelector(data.sel);
@@ -360,8 +813,6 @@ export async function sendMessageViaComposer(
     );
     await randomDelay(1000, 1500);
   }
-
-  console.log(`   ✅ Message in composer`);
 
   const sendState = await page.evaluate(() => {
     const sels = [
@@ -387,28 +838,15 @@ export async function sendMessageViaComposer(
     return { exists: false };
   });
 
-  console.log(
-    `   📊 Send btn: exists=${sendState.exists}, disabled=${sendState.disabled}`,
-  );
-
-  // Check for InMail credit exhaustion popup BEFORE clicking send
-  const inMailBlocked = await page.evaluate(() => {
-    const text = (document.body.innerText || "").toLowerCase();
-    return (
-      text.includes("out of free inmail") ||
-      text.includes("no inmail credits") ||
-      text.includes("upgrade to premium")
-    );
-  });
-
-  if (inMailBlocked) {
-    console.log(`   💎 Out of InMail credits — skipping send`);
+  // Final Premium check before sending
+  if (await isInMailPremiumBlocked(page)) {
+    console.log(`   💎 Premium block detected before send`);
+    await dismissPremiumModal(page);
     return { success: false, reason: "premium_required_for_inmail" };
   }
 
   if (actuallySend) {
-    if (!sendState.exists)
-      return { success: false, reason: "send_button_missing" };
+    if (!sendState.exists) return { success: false, reason: "send_button_missing" };
 
     if (sendState.disabled) {
       await page.evaluate((sel) => {
@@ -429,14 +867,14 @@ export async function sendMessageViaComposer(
     await humanClick(page, sendState.x, sendState.y);
     await randomDelay(3000, 5000);
 
-    if (await dismissPremiumModal(page)) {
+    if (await isInMailPremiumBlocked(page)) {
+      await dismissPremiumModal(page);
       return { success: false, reason: "premium_required_for_inmail" };
     }
 
     console.log(`   ✅ Message SENT!`);
     return { success: true, action: "message_sent" };
   } else {
-    console.log(`   ⚠️  Safe mode — typed but NOT sent`);
     return { success: true, action: "typed_only" };
   }
 }
@@ -450,17 +888,21 @@ export async function attemptSendMessage(
 ) {
   console.log(`\n💬 Attempting to send message...`);
 
-  const clicked = await clickMessageButton(page);
-  if (!clicked) return { success: false, reason: "no_message_button" };
+  const clickResult = await clickMessageButton(page);
+
+  if (clickResult === "premium_blocked") {
+    return { success: false, reason: "premium_required_for_inmail" };
+  }
+  if (!clickResult) {
+    return { success: false, reason: "no_message_button" };
+  }
 
   await randomDelay(2000, 3500);
-  await dismissPremiumModal(page);
 
-  return await sendMessageViaComposer(
-    page,
-    messageText,
-    subject,
-    actuallySend,
-    accountId,
-  );
+  if (await isInMailPremiumBlocked(page)) {
+    await dismissPremiumModal(page);
+    return { success: false, reason: "premium_required_for_inmail" };
+  }
+
+  return await sendMessageViaComposer(page, messageText, subject, actuallySend, accountId);
 }
