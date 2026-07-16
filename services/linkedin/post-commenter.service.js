@@ -234,6 +234,7 @@ export async function commentOnPost(
     console.log(`   ⏳ Waiting for NEW editor...`);
     let editorInfo = null;
 
+    // ✅ FIX: moved the progress log INSIDE the for loop
     for (let i = 0; i < 25; i++) {
       await page.waitForTimeout(800);
       editorInfo = await page.evaluate(() => {
@@ -257,16 +258,18 @@ export async function commentOnPost(
         }
         return null;
       });
+
       if (editorInfo) {
         console.log(
           `   ✅ NEW editor found (${editorInfo.w}x${editorInfo.h}) at y=${editorInfo.rawY}`,
         );
         break;
       }
-    }
 
-    if (i > 0 && i % 5 === 0) {
-      console.log(`   ⏳ Still waiting for editor... (${i}/25)`);
+      // ✅ FIX: this line is now INSIDE the for loop (i is in scope here)
+      if (i > 0 && i % 5 === 0) {
+        console.log(`   ⏳ Still waiting for editor... (${i}/25)`);
+      }
     }
 
     if (!editorInfo) {
