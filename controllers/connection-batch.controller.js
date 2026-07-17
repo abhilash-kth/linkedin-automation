@@ -1098,21 +1098,14 @@ import {
 import Lead from "../models/Lead.model.js";
 
 // ═══════════════════════════════════════════════════════════════
-// SAFE LIMITS (well under LinkedIn's weekly cap of ~100)
+// STRICT DAILY LIMITS (HARD CAP)
 // ═══════════════════════════════════════════════════════════════
 const MAX_CONNECTIONS_PER_RUN = 10; // per single batch run
-const MAX_CONNECTIONS_PER_DAY = 15; // daily cap
-const MAX_CONNECTIONS_PER_WEEK = 80; // weekly cap (LinkedIn ≈ 100/week)
+const MAX_CONNECTIONS_PER_DAY = 10; // HARD daily cap — NEVER exceeds
+const MAX_CONNECTIONS_PER_WEEK = 60; // 6 days × 10 = safe under LinkedIn's ~100 weekly
 const MAX_MESSAGES_PER_DAY = 15;
 const COOLDOWN_MIN_SEC = 45;
 const COOLDOWN_MAX_SEC = 90;
-
-const OUR_BUSINESS = `Kriscent — a software development agency specializing in:
-- SaaS product development
-- AI product engineering (LLMs, agents, automation)
-- Custom software for startups & SMBs
-- MVP development
-- Full-stack (React, Node.js, Python)`;
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -1148,7 +1141,7 @@ async function countTodayMessages(accountId) {
 
 async function countWeekConnections(accountId) {
   const weekStart = new Date();
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday of this week
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   weekStart.setHours(0, 0, 0, 0);
   return await Lead.countDocuments({
     accountId,
@@ -1409,11 +1402,13 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
 
   const connectionsRemainingDaily = MAX_CONNECTIONS_PER_DAY - todayConnections;
   const connectionsRemainingWeekly = MAX_CONNECTIONS_PER_WEEK - weekConnections;
-  const connectionsRemaining = Math.min(
-    connectionsRemainingDaily,
-    connectionsRemainingWeekly,
+  const connectionsRemaining = Math.max(
+    0,
+    Math.min(connectionsRemainingDaily, connectionsRemainingWeekly),
   );
   const messagesRemaining = MAX_MESSAGES_PER_DAY - todayMessages;
+
+  const canSendConnections = connectionsRemaining > 0;
 
   console.log(`📊 ACTIVITY LIMITS:`);
   console.log(
@@ -1426,25 +1421,27 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
     `   💬 Messages today:     ${todayMessages}/${MAX_MESSAGES_PER_DAY}`,
   );
   console.log(
-    `   ✅ Can send now:       ${connectionsRemaining} connections + ${messagesRemaining} messages\n`,
+    `   ✅ Can send now:       ${connectionsRemaining} connections + ${messagesRemaining} InMails\n`,
   );
 
-  if (connectionsRemaining <= 0 && messagesRemaining <= 0) {
-    const reason = connectionsRemainingWeekly <= 0 ? "WEEKLY" : "DAILY";
-    console.log(`⛔ ${reason} limits reached — nothing to send\n`);
-    console.log(
-      `   💡 ${reason === "WEEKLY" ? "Resets Monday" : "Resets midnight"}\n`,
-    );
-    return;
+  if (!canSendConnections) {
+    if (connectionsRemainingDaily <= 0) {
+      console.log(
+        `⛔ DAILY connection limit (${MAX_CONNECTIONS_PER_DAY}/day) REACHED`,
+      );
+      console.log(`   💡 Will still extract contact info + attempt InMails\n`);
+    } else if (connectionsRemainingWeekly <= 0) {
+      console.log(
+        `⛔ WEEKLY connection limit (${MAX_CONNECTIONS_PER_WEEK}/week) REACHED`,
+      );
+      console.log(`   💡 Will still extract contact info + attempt InMails`);
+      console.log(`   📅 Weekly limit resets Monday\n`);
+    }
   }
 
-  if (connectionsRemaining <= 0) {
-    console.log(
-      `⚠️  Connection limit reached (weekly=${weekConnections}/${MAX_CONNECTIONS_PER_WEEK})`,
-    );
-    console.log(
-      `   Will only process messages/acceptances for existing leads\n`,
-    );
+  if (!canSendConnections && messagesRemaining <= 0) {
+    console.log(`⛔ ALL limits reached — nothing to do\n`);
+    return;
   }
 
   const commentedLeads = await getLeadsByStatus("commented", accountId);
@@ -1457,11 +1454,13 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
     `📊 LEADS: ${allLeads.length} available (Commented=${commentedLeads.length}, Discovered=${discoveredLeads.length})\n`,
   );
 
-  const limit = Math.min(
-    MAX_CONNECTIONS_PER_RUN,
-    Math.max(connectionsRemaining, 0) + messagesRemaining,
-  );
-  const toProcess = allLeads.slice(0, limit);
+  // If connections available: process up to MAX_CONNECTIONS_PER_RUN
+  // If NO connections: still process leads for contact-info + InMail (up to messagesRemaining)
+  const runLimit = canSendConnections
+    ? Math.min(MAX_CONNECTIONS_PER_RUN, connectionsRemaining)
+    : Math.min(MAX_CONNECTIONS_PER_RUN, messagesRemaining);
+
+  const toProcess = allLeads.slice(0, runLimit);
 
   console.log(`📤 WILL PROCESS: ${toProcess.length} leads\n`);
 
@@ -1482,6 +1481,7 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
     premiumSkipped: 0,
     failed: 0,
     weeklyLimitHit: false,
+    connectionsSkippedDueToLimit: 0,
   };
 
   try {
@@ -1494,11 +1494,25 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
       const lead = toProcess[i];
       let messageSentThisLead = false;
 
+      // ═══ HARD LIMIT CHECK: Recompute before each lead ═══
+      const runConnections = stats.connected;
+      const totalTodayConnections = todayConnections + runConnections;
+      const totalWeekConnections = weekConnections + runConnections;
+      const dailyLimitHit = totalTodayConnections >= MAX_CONNECTIONS_PER_DAY;
+      const weeklyLimitHit = totalWeekConnections >= MAX_CONNECTIONS_PER_WEEK;
+      const canConnectThisLead =
+        !dailyLimitHit && !weeklyLimitHit && !stats.weeklyLimitHit;
+
       console.log(`\n${"━".repeat(63)}`);
       console.log(
         `[${i + 1}/${toProcess.length}] ${lead.name} (${lead.conversionScore}% ${lead.scoreCategory})`,
       );
       console.log(`📍 ${lead.profileUrl}`);
+      if (!canConnectThisLead) {
+        console.log(
+          `⚠️  Connection limit reached — will only extract info + try InMail`,
+        );
+      }
       console.log(`${"━".repeat(63)}`);
 
       try {
@@ -1519,7 +1533,7 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
         await behaveLikeHuman(page);
         await randomDelay(2000, 4000);
 
-        // ═══ STEP 2: Browse profile like human + extract contact info ═══
+        // ═══ STEP 2: Extract contact info (ALWAYS — even if limit hit) ═══
         console.log(`\n📇 STEP 1: Browse profile like a human`);
         console.log(`   📜 Scrolling to read profile...`);
         for (let s = 0; s < 3; s++) {
@@ -1689,28 +1703,12 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
           continue;
         }
 
-        // ═══ STEP 5: Send connection request (with verification) ═══
-        const currentSent = todayConnections + stats.connected;
-        const weeklySent = weekConnections + stats.connected;
+        // ═══ STEP 5: Send connection request (HARD LIMIT ENFORCED) ═══
         let connectSucceeded = false;
-        let skipConnectionAttempt = false;
 
-        // Check limits before attempting
-        if (currentSent >= MAX_CONNECTIONS_PER_DAY) {
+        if (canConnectThisLead) {
           console.log(
-            `   ⛔ Daily connection limit reached — skipping connect, trying InMail only`,
-          );
-          skipConnectionAttempt = true;
-        } else if (weeklySent >= MAX_CONNECTIONS_PER_WEEK) {
-          console.log(
-            `   ⛔ Weekly connection limit reached — skipping connect, trying InMail only`,
-          );
-          skipConnectionAttempt = true;
-        }
-
-        if (!skipConnectionAttempt) {
-          console.log(
-            `\n📨 STEP 4: Send connection request (day: ${currentSent + 1}/${MAX_CONNECTIONS_PER_DAY}, week: ${weeklySent + 1}/${MAX_CONNECTIONS_PER_WEEK})`,
+            `\n📨 STEP 4: Send connection request (day: ${totalTodayConnections + 1}/${MAX_CONNECTIONS_PER_DAY}, week: ${totalWeekConnections + 1}/${MAX_CONNECTIONS_PER_WEEK})`,
           );
           const connectionNote = await generateConnectionNote(lead);
 
@@ -1748,7 +1746,15 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
             await updateLeadStatus(lead.profileUrl, lead.status, {
               lastError: "weekly_limit_reached",
             });
-            break; // EXIT the for loop entirely
+            break;
+          }
+
+          if (connResult.success && connResult.alreadyPending) {
+            console.log(`   ⏳ Already pending — marking accordingly`);
+            await updateLeadStatus(lead.profileUrl, "pending_acceptance");
+            stats.skipped++;
+            await coolDown();
+            continue;
           }
 
           if (connResult.success && connResult.verified) {
@@ -1771,7 +1777,6 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
               });
             } catch {}
           } else if (connResult.success && !connResult.verified) {
-            // Send confirmed via light check but no navigation to verify
             console.log(`   ✅ Connection sent (unverified but confirmed)`);
             stats.connected++;
             connectSucceeded = true;
@@ -1793,19 +1798,11 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
           } else if (connResult.reason === "silently_dropped") {
             console.log(`   ⚠️  Connection silently dropped by LinkedIn`);
             stats.silentlyDropped++;
-            // Fall through to InMail attempt below
           } else if (
             connResult.reason === "connect_button_not_found" ||
             connResult.reason === "connect_not_in_dropdown"
           ) {
             console.log(`   ℹ️  Connect option unavailable — will try InMail`);
-            // Fall through to InMail
-          } else if (connResult.success && connResult.alreadyPending) {
-            console.log(`   ⏳ Already pending — marking accordingly`);
-            await updateLeadStatus(lead.profileUrl, "pending_acceptance");
-            stats.skipped++;
-            await coolDown();
-            continue;
           } else {
             console.log(`   ❌ Connection failed: ${connResult.reason}`);
             stats.failed++;
@@ -1814,15 +1811,20 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
               retryCount: (lead.retryCount || 0) + 1,
             });
           }
+        } else {
+          console.log(
+            `\n⏭️  STEP 4: SKIPPING connection request (daily limit ${MAX_CONNECTIONS_PER_DAY} reached)`,
+          );
+          stats.connectionsSkippedDueToLimit++;
         }
 
-        // ═══ STEP 6: If connection failed/skipped → try InMail ═══
+        // ═══ STEP 6: If no connection sent → try InMail ═══
         if (
           !connectSucceeded &&
           !messageSentThisLead &&
           messagesRemaining > stats.messaged
         ) {
-          console.log(`\n💎 STEP 5: Try InMail (connection didn't work)`);
+          console.log(`\n💎 STEP 5: Try InMail`);
           await randomDelay(3000, 5000);
 
           if (page.isClosed()) {
@@ -1937,7 +1939,7 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
 
     if (stats.weeklyLimitHit) {
       console.log(
-        `║  🚨 WEEKLY LIMIT WAS HIT — RESUME NEXT MONDAY              ║`,
+        `║  🚨 WEEKLY LIMIT HIT — RESUME NEXT MONDAY                  ║`,
       );
       console.log(
         `║                                                            ║`,
@@ -1945,31 +1947,34 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
     }
 
     console.log(
-      `║  📇 Contact extracted:    ${String(stats.contactExtracted).padEnd(31)}║`,
+      `║  📇 Contact extracted:      ${String(stats.contactExtracted).padEnd(29)}║`,
     );
     console.log(
-      `║  💌 Accepted incoming:    ${String(stats.accepted).padEnd(31)}║`,
+      `║  💌 Accepted incoming:      ${String(stats.accepted).padEnd(29)}║`,
     );
     console.log(
-      `║  ✅ Connections sent:     ${String(stats.connected).padEnd(31)}║`,
+      `║  ✅ Connections sent:       ${String(stats.connected).padEnd(29)}║`,
     );
     console.log(
-      `║  ⚠️  Silently dropped:    ${String(stats.silentlyDropped).padEnd(31)}║`,
+      `║  ⚠️  Silently dropped:      ${String(stats.silentlyDropped).padEnd(29)}║`,
     );
     console.log(
-      `║  💎 InMails sent:         ${String(stats.inmail).padEnd(31)}║`,
+      `║  ⏸️  Skipped (daily limit): ${String(stats.connectionsSkippedDueToLimit).padEnd(29)}║`,
     );
     console.log(
-      `║  💬 Total messages:       ${String(stats.messaged).padEnd(31)}║`,
+      `║  💎 InMails sent:           ${String(stats.inmail).padEnd(29)}║`,
     );
     console.log(
-      `║  💰 Premium-skipped:      ${String(stats.premiumSkipped).padEnd(31)}║`,
+      `║  💬 Total messages:         ${String(stats.messaged).padEnd(29)}║`,
     );
     console.log(
-      `║  ⏭️  Skipped:             ${String(stats.skipped).padEnd(31)}║`,
+      `║  💰 Premium-skipped:        ${String(stats.premiumSkipped).padEnd(29)}║`,
     );
     console.log(
-      `║  ❌ Failed:               ${String(stats.failed).padEnd(31)}║`,
+      `║  ⏭️  Other skipped:         ${String(stats.skipped).padEnd(29)}║`,
+    );
+    console.log(
+      `║  ❌ Failed:                 ${String(stats.failed).padEnd(29)}║`,
     );
     console.log(
       `║                                                            ║`,
@@ -1978,10 +1983,10 @@ export async function sendConnectionBatch(accountId, actuallySend = false) {
       `║  📊 CURRENT TOTALS:                                        ║`,
     );
     console.log(
-      `║     Today:  ${String(finalConnections).padStart(3)}/${MAX_CONNECTIONS_PER_DAY} conn | ${String(finalMessages).padStart(3)}/${MAX_MESSAGES_PER_DAY} msg${" ".repeat(19)}║`,
+      `║     Today:  ${String(finalConnections).padStart(2)}/${MAX_CONNECTIONS_PER_DAY} conn | ${String(finalMessages).padStart(2)}/${MAX_MESSAGES_PER_DAY} msg${" ".repeat(21)}║`,
     );
     console.log(
-      `║     Week:   ${String(finalWeekConnections).padStart(3)}/${MAX_CONNECTIONS_PER_WEEK} connections${" ".repeat(28)}║`,
+      `║     Week:   ${String(finalWeekConnections).padStart(2)}/${MAX_CONNECTIONS_PER_WEEK} connections${" ".repeat(29)}║`,
     );
     console.log(
       `╚═══════════════════════════════════════════════════════════╝\n`,
