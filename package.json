@@ -28,11 +28,11 @@
     "debug-message": "node debug/debug-message.js",
     "embed-keywords": "node scripts/embed-keywords.js",
     "discover": "node scripts/run-discovery.js account_1",
-    "discover:real": "node scripts/run-discovery.js account_1 --comment",
+    "discover:real": "node scripts/run-discovery.js account_2 --comment",
     "embed-requirements": "node scripts/embed-requirements.js",
     "embed-all": "npm run embed-keywords && npm run embed-requirements",
     "comment-replies": "node scripts/run-comment-replies.js account_1",
-    "comment-replies:real": "node scripts/run-comment-replies.js account_1 --send"
+    "comment-replies:real": "node scripts/run-comment-replies.js account_2 --send"
   },
   "keywords": ["linkedin", "automation", "ai"],
   "author": "",

@@ -33,7 +33,7 @@ import {
 } from "../services/database/lead-db.service.js";
 import { randomDelay } from "../helpers/human-behavior.helper.js";
 
-const SIMILARITY_THRESHOLD_PERCENT = 55; // 55% top match required
+const SIMILARITY_THRESHOLD_PERCENT = 40; // 55% top match required
 const MIN_DAYS_BETWEEN_LEAD_ACTIONS = 7;
 
 export async function discoverLeads(accountId, actuallyComment = false) {

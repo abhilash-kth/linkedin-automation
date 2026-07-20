@@ -991,3 +991,9 @@ pm2 restart linkedin-scheduler --update-env
 
 Built for Kriscent — AI-powered LinkedIn outreach at scale 🚀
 Total cost: $0/month | Fully automated | Human-like behavior
+
+
+
+
+///To Clear the sessiona and wanted to login with another account 
+## rmdir /s /q profiles\account_1
