@@ -78,7 +78,6 @@ export async function updateSheetRow(sheetName, row, values) {
 
 /**
  * THE ONE TRUE HEADER LIST — 46 columns A to AT
- * If you change this, update buildLeadRow() to match
  */
 export const SHEET_HEADERS = [
   "Date Discovered", // A  [0]
@@ -141,31 +140,51 @@ export async function setupLeadsSheetHeaders() {
 }
 
 /**
- * THE ONE TRUE ROW BUILDER — always returns 46 columns
- * Used by BOTH discovery controller AND sync script
+ * THE ONE TRUE ROW BUILDER — always returns exactly 46 columns
+ *
+ * ALL BUGS FIXED:
+ * 1. Comment Posted (P): was always "No" due to boolean === string bug
+ * 2. InMail fields (AA-AC): were hardcoded to "No"/empty — now reads from lead
+ * 3. Reply fields (AD-AG): totalReplies was hardcoded 0, preview hardcoded empty
+ * 4. AI fields (AH-AI): now reads from dedicated fields, falls back to aiAnalysis
+ * 5. Follow-up fields (AJ-AN): were hardcoded — now reads from lead
+ * 6. Meeting Date (AQ): was hardcoded empty — now reads from lead
+ * 7. connectionStatus: now handles all statuses correctly
  */
 export function buildLeadRow(lead) {
   const now = new Date();
   const nowIso = now.toISOString();
 
+  // ── Date Discovered ──
   const dateDiscovered = lead.createdAt
     ? new Date(lead.createdAt).toISOString().split("T")[0]
     : nowIso.split("T")[0];
 
+  // ── FIX 1: Comment Posted ──
+  // OLD BUG: wasCommented === "commented" → boolean compared to string → always false
+  // NEW: use dedicated commentPosted field OR fallback to status/aiAnalysis check
   const wasCommented =
+    lead.commentPosted === true ||
     lead.status === "commented" ||
     !!(
       lead.aiAnalysis?.generatedComment &&
       lead.aiAnalysis.generatedComment.length > 10
     );
 
+  // ── Comment Date ──
   const commentDate =
-    wasCommented && (lead.commentedAt || lead.lastProcessedAt)
-      ? new Date(lead.commentedAt || lead.lastProcessedAt)
-          .toISOString()
-          .split("T")[0]
-      : "";
+    wasCommented && lead.commentedAt
+      ? new Date(lead.commentedAt).toISOString().split("T")[0]
+      : wasCommented && lead.lastProcessedAt
+        ? new Date(lead.lastProcessedAt).toISOString().split("T")[0]
+        : "";
 
+  // ── Comment Text ──
+  // Use dedicated commentText field first, then fall back to aiAnalysis
+  const commentText =
+    lead.commentText || lead.aiAnalysis?.generatedComment || "";
+
+  // ── Connection fields ──
   const connectionDate = lead.connectionSentAt
     ? new Date(lead.connectionSentAt).toISOString().split("T")[0]
     : "";
@@ -174,19 +193,106 @@ export function buildLeadRow(lead) {
     ? new Date(lead.connectionAcceptedAt).toISOString().split("T")[0]
     : "";
 
+  // ── FIX 7: connectionStatus — handle ALL statuses ──
+  const connectionSentStatuses = [
+    "connection_sent",
+    "connection_and_message_sent",
+    "pending_acceptance",
+    "accepted",
+    "message_sent",
+    "replied",
+    "interested",
+    "not_interested",
+    "meeting_scheduled",
+  ];
+
+  const connectionSent = connectionSentStatuses.includes(lead.status);
+
+  const acceptedStatuses = [
+    "accepted",
+    "message_sent",
+    "replied",
+    "interested",
+    "not_interested",
+    "meeting_scheduled",
+  ];
+
+  const pendingStatuses = [
+    "connection_sent",
+    "connection_and_message_sent",
+    "pending_acceptance",
+  ];
+
+  const connectionStatus = acceptedStatuses.includes(lead.status)
+    ? "accepted"
+    : pendingStatuses.includes(lead.status)
+      ? "pending"
+      : "";
+
+  // ── Warming ──
   const warmingDate = lead.messageSentAt
     ? new Date(lead.messageSentAt).toISOString().split("T")[0]
     : "";
 
-  const firstReplyDate = lead.lastRepliedAt
-    ? new Date(lead.lastRepliedAt).toISOString().split("T")[0]
+  // ── FIX 2: InMail fields — were always hardcoded "No"/empty ──
+  const inMailSent = lead.inMailSent === true ? "Yes" : "No";
+  const inMailText = lead.inMailText || "";
+  const inMailDate = lead.inMailSentAt
+    ? new Date(lead.inMailSentAt).toISOString().split("T")[0]
     : "";
 
-  const lastUpdated = lead.updatedAt
-    ? new Date(lead.updatedAt).toISOString()
-    : nowIso;
+  // ── FIX 3: Reply fields ──
+  // OLD BUG: totalReplies hardcoded to 0, lastReplyPreview hardcoded to ""
+  const replied = [
+    "replied",
+    "interested",
+    "not_interested",
+    "meeting_scheduled",
+  ].includes(lead.status);
 
-  // Notes = top 3 requirement matches
+  // firstReplyDate: use dedicated field first, then lastRepliedAt
+  const firstReplyDate = lead.firstReplyDate
+    ? new Date(lead.firstReplyDate).toISOString().split("T")[0]
+    : lead.lastRepliedAt
+      ? new Date(lead.lastRepliedAt).toISOString().split("T")[0]
+      : "";
+
+  // totalReplies: use dedicated field (was always 0 before)
+  const totalReplies = lead.totalReplies || 0;
+
+  // lastReplyPreview: use dedicated field (was always "" before)
+  const lastReplyPreview = lead.lastReplyPreview || "";
+
+  // ── FIX 4: AI fields ──
+  // OLD BUG: read from aiAnalysis.interested which is for comment analysis
+  // NEW: use dedicated aiInterestLevel/aiSentiment fields, fallback to aiAnalysis
+  const aiInterestLevel =
+    lead.aiInterestLevel || lead.aiAnalysis?.interested || "";
+
+  const aiSentiment = lead.aiSentiment || lead.aiAnalysis?.sentiment || "";
+
+  // ── FIX 5: Follow-up fields — were always hardcoded ──
+  const followUpNeeded = lead.followUpNeeded ? "Yes" : "No";
+  const followUp1Sent = lead.followUp1Sent ? "Yes" : "No";
+  const followUp1Date = lead.followUp1Date
+    ? new Date(lead.followUp1Date).toISOString().split("T")[0]
+    : "";
+  const followUp2Sent = lead.followUp2Sent ? "Yes" : "No";
+  const followUp2Date = lead.followUp2Date
+    ? new Date(lead.followUp2Date).toISOString().split("T")[0]
+    : "";
+
+  // ── FIX 6: Meeting Date — was always hardcoded empty ──
+  const meetingScheduled =
+    lead.meetingScheduled === true || lead.status === "meeting_scheduled"
+      ? "Yes"
+      : "No";
+
+  const meetingDate = lead.meetingDate
+    ? new Date(lead.meetingDate).toISOString().split("T")[0]
+    : "";
+
+  // ── Notes ── top 3 score matches
   let matchSummary = "";
   if (lead.aiAnalysis?.allScores) {
     matchSummary = Object.entries(lead.aiAnalysis.allScores)
@@ -198,41 +304,17 @@ export function buildLeadRow(lead) {
     matchSummary = lead.scoreReasons.join(" | ");
   }
 
-  const connectionSent = [
-    "connection_sent",
-    "connection_and_message_sent",
-    "pending_acceptance",
-    "accepted",
-    "message_sent",
-    "replied",
-    "interested",
-  ].includes(lead.status);
+  const lastUpdated = lead.updatedAt
+    ? new Date(lead.updatedAt).toISOString()
+    : nowIso;
 
-  const connectionStatus = [
-    "accepted",
-    "message_sent",
-    "replied",
-    "interested",
-  ].includes(lead.status)
-    ? "accepted"
-    : [
-          "connection_sent",
-          "connection_and_message_sent",
-          "pending_acceptance",
-        ].includes(lead.status)
-      ? "pending"
-      : "";
-
-  const replied = ["replied", "interested", "meeting_scheduled"].includes(
-    lead.status,
-  );
-
+  // ── Build row — exactly 46 columns ──
   const row = new Array(46).fill("");
 
   row[0] = dateDiscovered; // A  Date Discovered
   row[1] = lead.name || ""; // B  Name
   row[2] = lead.profileUrl || ""; // C  Profile URL
-  row[3] = (lead.title || "").substring(0, 300); // D  Headline
+  row[3] = (lead.headline || lead.title || "").substring(0, 300);    // D  Headline
   row[4] = lead.location || ""; // E  Location
   row[5] = lead.email || ""; // F  Email
   row[6] = lead.phone || ""; // G  Phone
@@ -244,35 +326,35 @@ export function buildLeadRow(lead) {
   row[12] = (lead.postContent || "").substring(0, 1000); // M  Post Content
   row[13] = lead.postUrl || ""; // N  Post URL
   row[14] = lead.postTime || ""; // O  Post Time
-  row[15] = wasCommented === "commented" ? "Yes" : "No"; // P  Comment Posted
-  row[16] = lead.aiAnalysis?.generatedComment || ""; // Q  Our Comment Text
+  row[15] = wasCommented ? "Yes" : "No"; // P  Comment Posted  ← BUG FIXED
+  row[16] = commentText.substring(0, 500); // Q  Our Comment Text
   row[17] = commentDate; // R  Comment Date
   row[18] = connectionSent ? "Yes" : "No"; // S  Connection Sent
   row[19] = lead.connectionNote || ""; // T  Connection Note
   row[20] = connectionDate; // U  Connection Date
-  row[21] = connectionStatus; // V  Connection Status
+  row[21] = connectionStatus; // V  Connection Status ← BUG FIXED
   row[22] = acceptedDate; // W  Accepted Date
   row[23] = lead.warmingMessage ? "Yes" : "No"; // X  Warming Msg Sent
-  row[24] = lead.warmingMessage || ""; // Y  Warming Msg Text
+  row[24] = (lead.warmingMessage || "").substring(0, 500); // Y  Warming Msg Text
   row[25] = warmingDate; // Z  Warming Date
-  row[26] = "No"; // AA InMail Sent
-  row[27] = ""; // AB InMail Text
-  row[28] = ""; // AC InMail Date
+  row[26] = inMailSent; // AA InMail Sent      ← BUG FIXED
+  row[27] = inMailText.substring(0, 500); // AB InMail Text      ← BUG FIXED
+  row[28] = inMailDate; // AC InMail Date      ← BUG FIXED
   row[29] = replied ? "Yes" : "No"; // AD Replied
-  row[30] = firstReplyDate; // AE First Reply Date
-  row[31] = 0; // AF Total Replies
-  row[32] = ""; // AG Last Reply Preview
-  row[33] = lead.aiAnalysis?.interested || ""; // AH AI Interest Level
-  row[34] = lead.aiAnalysis?.sentiment || ""; // AI AI Sentiment
-  row[35] = ""; // AJ Follow-up Needed
-  row[36] = "No"; // AK Follow-up 1 Sent
-  row[37] = ""; // AL Follow-up 1 Date
-  row[38] = "No"; // AM Follow-up 2 Sent
-  row[39] = ""; // AN Follow-up 2 Date
+  row[30] = firstReplyDate; // AE First Reply Date ← BUG FIXED
+  row[31] = totalReplies; // AF Total Replies    ← BUG FIXED
+  row[32] = lastReplyPreview.substring(0, 200); // AG Last Reply Preview ← BUG FIXED
+  row[33] = aiInterestLevel; // AH AI Interest Level ← BUG FIXED
+  row[34] = aiSentiment; // AI AI Sentiment     ← BUG FIXED
+  row[35] = followUpNeeded; // AJ Follow-up Needed ← BUG FIXED
+  row[36] = followUp1Sent; // AK Follow-up 1 Sent ← BUG FIXED
+  row[37] = followUp1Date; // AL Follow-up 1 Date ← BUG FIXED
+  row[38] = followUp2Sent; // AM Follow-up 2 Sent ← BUG FIXED
+  row[39] = followUp2Date; // AN Follow-up 2 Date ← BUG FIXED
   row[40] = lead.status || "discovered"; // AO Final Status
-  row[41] = lead.status === "meeting_scheduled" ? "Yes" : "No"; // AP Meeting Scheduled
-  row[42] = ""; // AQ Meeting Date
-  row[43] = matchSummary; // AR Notes
+  row[41] = meetingScheduled; // AP Meeting Scheduled ← BUG FIXED
+  row[42] = meetingDate; // AQ Meeting Date     ← BUG FIXED
+  row[43] = matchSummary.substring(0, 500); // AR Notes
   row[44] = lead.accountId || "account_1"; // AS Account Used
   row[45] = lastUpdated; // AT Last Updated
 
@@ -353,7 +435,9 @@ export async function updateLeadInSheet(profileUrl, updates) {
 
   for (const [col, value] of Object.entries(updates)) {
     const idx = colMap[col.toUpperCase()];
-    if (idx !== undefined) currentRow[idx] = value;
+    if (idx !== undefined && value !== undefined) {
+      currentRow[idx] = value;
+    }
   }
 
   return await writeSheet("Leads", `A${rowNum}:AT${rowNum}`, [currentRow]);

@@ -2532,56 +2532,135 @@ export async function commentOnPost(
     await closeBlockingModals(page);
     await closeExtraTabs(page);
 
-    // ═══ STEP 8: Verify comment posted ═══
+    // ═══ STEP 8: STRICT verification ═══
+    // Wait for LinkedIn to actually process the comment
+    await randomDelay(2000, 3000);
+
     const verification = await page.evaluate(
-      ({ editorSel, commentDisplaySels, expectedText }) => {
+      ({ editorSel, commentDisplaySels, expectedText, postTag, idx }) => {
         const editor = document.querySelector(editorSel);
         const editorGone = !editor;
         const editorEmpty = editor
           ? (editor.textContent || "").trim().length === 0
           : true;
 
-        const searchText = expectedText.substring(0, 30).toLowerCase();
+        const searchText = expectedText.substring(0, 40).toLowerCase();
         const displaySel = commentDisplaySels.join(", ");
+
+        // Look in the SPECIFIC post we commented on
+        const post = document.querySelector(`[${postTag}="${idx}"]`);
+        let foundInPost = false;
+        if (post) {
+          const commentsInPost = post.querySelectorAll(displaySel);
+          for (const c of commentsInPost) {
+            if ((c.textContent || "").toLowerCase().includes(searchText)) {
+              foundInPost = true;
+              break;
+            }
+          }
+        }
+
+        // Also look globally as fallback
         const allComments = document.querySelectorAll(displaySel);
-        let foundInComments = false;
+        let foundGlobally = false;
         for (const c of allComments) {
           if ((c.textContent || "").toLowerCase().includes(searchText)) {
-            foundInComments = true;
+            foundGlobally = true;
             break;
           }
         }
 
-        return { editorGone, editorEmpty, foundInComments };
+        return { editorGone, editorEmpty, foundInPost, foundGlobally };
       },
       {
         editorSel: SELECTORS.commentComposer.activeEditorSelector,
         commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
         expectedText: commentText,
+        postTag: SELECTORS.postCard.tag,
+        idx: postIndex,
       },
     );
 
     console.log(
-      `   📊 Verify: editorGone=${verification.editorGone}, editorEmpty=${verification.editorEmpty}, foundInComments=${verification.foundInComments}`,
+      `   📊 Verify: editorGone=${verification.editorGone}, editorEmpty=${verification.editorEmpty}, inPost=${verification.foundInPost}, global=${verification.foundGlobally}`,
     );
 
     await fullCleanup(page);
 
-    // SUCCESS conditions
-    if (verification.foundInComments) {
+    // STRICT: Only success if we can SEE our comment in the DOM
+    if (verification.foundInPost || verification.foundGlobally) {
       console.log(`   ✅ Comment POSTED and VERIFIED in DOM!`);
       return { success: true, action: "commented" };
     }
 
-    if (verification.editorEmpty || verification.editorGone) {
-      // Editor cleared = LinkedIn accepted the comment
-      // On search results page, comments don't render inline
-      console.log(`   ✅ Comment SUBMITTED (editor cleared by LinkedIn)`);
-      return { success: true, action: "commented" };
+    // Comment not visible — do 2 more retries with waits before giving up
+    console.log(
+      `   ⏳ Comment not immediately visible — waiting for LinkedIn to render...`,
+    );
+
+    for (let retry = 1; retry <= 2; retry++) {
+      await randomDelay(4000, 6000);
+      console.log(`   🔄 Retry check ${retry}/2...`);
+
+      const retryCheck = await page.evaluate(
+        ({ commentDisplaySels, expectedText, postTag, idx }) => {
+          const searchText = expectedText.substring(0, 40).toLowerCase();
+          const displaySel = commentDisplaySels.join(", ");
+
+          // Check within the post
+          const post = document.querySelector(`[${postTag}="${idx}"]`);
+          if (post) {
+            const commentsInPost = post.querySelectorAll(displaySel);
+            for (const c of commentsInPost) {
+              if ((c.textContent || "").toLowerCase().includes(searchText)) {
+                return { found: true, location: "in_post" };
+              }
+            }
+          }
+
+          // Check globally
+          const allComments = document.querySelectorAll(displaySel);
+          for (const c of allComments) {
+            if ((c.textContent || "").toLowerCase().includes(searchText)) {
+              return { found: true, location: "global" };
+            }
+          }
+
+          return { found: false };
+        },
+        {
+          commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
+          expectedText: commentText,
+          postTag: SELECTORS.postCard.tag,
+          idx: postIndex,
+        },
+      );
+
+      if (retryCheck.found) {
+        console.log(
+          `   ✅ Comment now visible in DOM (${retryCheck.location})!`,
+        );
+        await fullCleanup(page);
+        return { success: true, action: "commented" };
+      }
     }
 
-    console.log(`   ❌ Comment NOT posted — editor still has text`);
-    return { success: false, reason: "comment_not_posted" };
+    // After 2 retries: comment STILL not visible = LinkedIn rate-limited us
+    console.log(``);
+    console.log(`   🚫🚫🚫 COMMENT RATE LIMIT DETECTED 🚫🚫🚫`);
+    console.log(
+      `   📊 Editor state: gone=${verification.editorGone}, empty=${verification.editorEmpty}`,
+    );
+    console.log(`   🛑 Comment did NOT appear in DOM after multiple checks`);
+    console.log(`   ⏸️  LinkedIn blocked the comment — must wait 48 hours`);
+    console.log(``);
+
+    await fullCleanup(page);
+    return {
+      success: false,
+      reason: "comment_rate_limited",
+      stopAllComments: true, // signal to controller
+    };
   } catch (err) {
     console.log(`   ❌ Error: ${err.message}`);
     await closeBlockingModals(page);
@@ -2894,26 +2973,64 @@ async function findSubmitButton(page) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function getFreshSubmitCoords(page) {
-  await page.waitForTimeout(500); // wait for scroll to settle
+  await page.waitForTimeout(500);
 
   return await page.evaluate((submitSel) => {
-    const btn = document.querySelector(submitSel);
-    if (!btn) return null;
+    // Get ALL tagged submits (there should only be one, but safety first)
+    const btns = document.querySelectorAll(submitSel);
+    if (btns.length === 0) return null;
 
-    let rect = btn.getBoundingClientRect();
+    // Pick the one that's most likely CORRECT — closest to visible viewport
+    let bestBtn = null;
+    let bestDistanceFromCenter = Infinity;
+    const viewportCenter = window.innerHeight / 2;
 
-    // If button is outside viewport, scroll it in
-    if (rect.y < 50 || rect.y > window.innerHeight - 50) {
-      btn.scrollIntoView({ block: "center", behavior: "instant" });
-      rect = btn.getBoundingClientRect();
+    for (const btn of btns) {
+      const rect = btn.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+
+      // Must be in viewport
+      if (rect.y < 0 || rect.y > window.innerHeight) continue;
+
+      // Must be a valid button (has text like "Comment", "Post", "Reply")
+      const text = (btn.textContent || "").trim();
+      if (!["Comment", "Post", "Reply"].includes(text)) continue;
+      if (btn.hasAttribute("disabled")) continue;
+
+      const btnCenter = rect.y + rect.height / 2;
+      const distance = Math.abs(btnCenter - viewportCenter);
+      if (distance < bestDistanceFromCenter) {
+        bestDistanceFromCenter = distance;
+        bestBtn = btn;
+      }
     }
 
-    if (rect.width === 0 || rect.height === 0) return null;
-    if (rect.y < 0 || rect.y > window.innerHeight) return null;
+    if (!bestBtn) {
+      // Fallback: try first tagged one and scroll it in
+      const first = btns[0];
+      let rect = first.getBoundingClientRect();
+      if (rect.y < 50 || rect.y > window.innerHeight - 50) {
+        first.scrollIntoView({ block: "center", behavior: "instant" });
+        rect = first.getBoundingClientRect();
+      }
+      if (rect.width === 0 || rect.height === 0) return null;
+      if (rect.y < 0 || rect.y > window.innerHeight) return null;
+      return {
+        x: Math.floor(rect.x + rect.width / 2),
+        y: Math.floor(rect.y + rect.height / 2),
+      };
+    }
+
+    // Scroll best button into view if needed
+    let finalRect = bestBtn.getBoundingClientRect();
+    if (finalRect.y < 100 || finalRect.y > window.innerHeight - 100) {
+      bestBtn.scrollIntoView({ block: "center", behavior: "instant" });
+      finalRect = bestBtn.getBoundingClientRect();
+    }
 
     return {
-      x: Math.floor(rect.x + rect.width / 2),
-      y: Math.floor(rect.y + rect.height / 2),
+      x: Math.floor(finalRect.x + finalRect.width / 2),
+      y: Math.floor(finalRect.y + finalRect.height / 2),
     };
   }, SELECTORS.commentComposer.activeSubmitSelector);
 }
@@ -3736,9 +3853,60 @@ export async function replyToSpecificComment(
     await page.mouse.click(finalSubmit.x, finalSubmit.y);
     await randomDelay(3000, 5000);
 
-    console.log(`   ✅ Reply POSTED to ${targetName}!`);
+    // ═══ VERIFY: Reply must actually appear in DOM ═══
+    // Do 2 retries with waits before declaring failure
+    console.log(`   ⏳ Verifying reply appears in DOM...`);
+
+    for (let retry = 1; retry <= 2; retry++) {
+      await randomDelay(3500, 5000);
+
+      const verifyReply = await page.evaluate(
+        (data) => {
+          const { expectedText, commentDisplaySels } = data;
+          const searchText = expectedText.substring(0, 40).toLowerCase();
+          const displaySel = commentDisplaySels.join(", ");
+
+          // Look for our reply anywhere on the page
+          const allComments = document.querySelectorAll(displaySel);
+          for (const c of allComments) {
+            const text = (c.textContent || "").toLowerCase();
+            if (text.includes(searchText)) {
+              return true;
+            }
+          }
+          return false;
+        },
+        {
+          expectedText: replyText,
+          commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
+        },
+      );
+
+      if (verifyReply) {
+        console.log(`   ✅ Reply VERIFIED in DOM (retry ${retry})`);
+        await fullCleanup(page);
+        return { success: true, action: "replied" };
+      }
+
+      console.log(`   🔄 Reply not visible yet — retry ${retry}/2`);
+    }
+
+    // After 2 retries: reply NOT visible = LinkedIn rate-limited
+    console.log(``);
+    console.log(
+      `   🚫🚫🚫 REPLY NOT VISIBLE IN DOM — RATE LIMIT DETECTED 🚫🚫🚫`,
+    );
+    console.log(
+      `   🛑 LinkedIn silently blocked our reply — 48-hour cooldown needed`,
+    );
+    console.log(``);
+
     await fullCleanup(page);
-    return { success: true, action: "replied" };
+    return {
+      success: false,
+      reason: "reply_rate_limited",
+      stopAllComments: true, // signal to controller to set 48h block
+    };
   } catch (err) {
     console.log(`   ❌ Reply error: ${err.message}`);
     await fullCleanup(page);

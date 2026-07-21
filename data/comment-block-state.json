@@ -1,0 +1,7 @@
+{
+  "account_1": {
+    "blockedAt": "2026-07-21T10:11:31.788Z",
+    "blockedUntil": "2026-07-23T10:11:31.788Z",
+    "reason": "comment_not_visible_in_dom"
+  }
+}

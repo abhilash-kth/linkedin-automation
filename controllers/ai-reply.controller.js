@@ -1,4 +1,7 @@
-import { launchBrowser, closeBrowser } from "../services/browser/browser.service.js";
+import {
+  launchBrowser,
+  closeBrowser,
+} from "../services/browser/browser.service.js";
 import { checkSession } from "../services/browser/session.service.js";
 import {
   scanInbox,
@@ -41,18 +44,22 @@ const AUTO_UPGRADE_STATUSES = [
 ];
 
 // Statuses that mean STOP replying
-const BLOCKED_STATUSES = [
-  "not_interested",
-];
+const BLOCKED_STATUSES = ["not_interested"];
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN FUNCTION
 // ═══════════════════════════════════════════════════════════════
 export async function processAIReplies(accountId, actuallySend = false) {
-  console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
+  console.log(
+    `\n╔═══════════════════════════════════════════════════════════╗`,
+  );
   console.log(`║  AI REPLY PROCESSOR — ${accountId.padEnd(36)}║`);
-  console.log(`║  Mode: ${(actuallySend ? "REAL SEND" : "SAFE (dry run)").padEnd(51)}║`);
-  console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+  console.log(
+    `║  Mode: ${(actuallySend ? "REAL SEND" : "SAFE (dry run)").padEnd(51)}║`,
+  );
+  console.log(
+    `╚═══════════════════════════════════════════════════════════╝\n`,
+  );
 
   await connectDB();
 
@@ -99,7 +106,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
         break;
       }
 
-      console.log(`\n─── [${i + 1}/${all.length}] ${convo.name} ${convo.unread ? "🔴 UNREAD" : ""}`);
+      console.log(
+        `\n─── [${i + 1}/${all.length}] ${convo.name} ${convo.unread ? "🔴 UNREAD" : ""}`,
+      );
       console.log(`   Preview: "${convo.preview.substring(0, 60)}..."`);
 
       try {
@@ -120,8 +129,15 @@ export async function processAIReplies(accountId, actuallySend = false) {
         const leadDoc = await findLeadByName(convo.name, accountId);
 
         if (leadDoc) {
-          console.log(`   ✅ Matched lead: ${leadDoc.name} (${leadDoc.status})`);
-          await syncConversationMessages(leadDoc, accountId, convo.name, messages);
+          console.log(
+            `   ✅ Matched lead: ${leadDoc.name} (${leadDoc.status})`,
+          );
+          await syncConversationMessages(
+            leadDoc,
+            accountId,
+            convo.name,
+            messages,
+          );
         } else {
           console.log(`   ⚠️  No lead in DB — skip`);
           stats.noLeadMatch++;
@@ -141,7 +157,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
           continue;
         }
         if (processedPersons.has(personKey)) {
-          console.log(`   ⚠️  Already queued for ${convo.name} — skip duplicate thread`);
+          console.log(
+            `   ⚠️  Already queued for ${convo.name} — skip duplicate thread`,
+          );
           continue;
         }
 
@@ -157,7 +175,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
           threadId: convo.threadId,
         });
         stats.needsReply++;
-        console.log(`   🎯 NEEDS REPLY (thread: ${(convo.threadId || "unknown").substring(0, 20)})`);
+        console.log(
+          `   🎯 NEEDS REPLY (thread: ${(convo.threadId || "unknown").substring(0, 20)})`,
+        );
 
         await randomDelay(2000, 4000);
       } catch (err) {
@@ -165,9 +185,15 @@ export async function processAIReplies(accountId, actuallySend = false) {
       }
     }
 
-    console.log(`\n\n╔═══════════════════════════════════════════════════════════╗`);
-    console.log(`║  Found ${needingReply.length} conversations needing reply${" ".repeat(20)}║`);
-    console.log(`╚═══════════════════════════════════════════════════════════╝`);
+    console.log(
+      `\n\n╔═══════════════════════════════════════════════════════════╗`,
+    );
+    console.log(
+      `║  Found ${needingReply.length} conversations needing reply${" ".repeat(20)}║`,
+    );
+    console.log(
+      `╚═══════════════════════════════════════════════════════════╝`,
+    );
 
     if (needingReply.length === 0) {
       console.log(`\n✅ All caught up\n`);
@@ -178,7 +204,8 @@ export async function processAIReplies(accountId, actuallySend = false) {
     console.log(`\n📤 Processing ${toReply.length} replies\n`);
 
     for (let i = 0; i < toReply.length; i++) {
-      const { convo, messages, lead, lastMessage, convoIndex, threadId } = toReply[i];
+      const { convo, messages, lead, lastMessage, convoIndex, threadId } =
+        toReply[i];
 
       console.log(`\n${"━".repeat(63)}`);
       console.log(`[${i + 1}/${toReply.length}] Reply to: ${convo.name}`);
@@ -192,7 +219,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
 
         // 1. If lead said "not interested" — respect it
         if (BLOCKED_STATUSES.includes(lead.status)) {
-          console.log(`   🛑 Lead status "${lead.status}" — respecting their decline`);
+          console.log(
+            `   🛑 Lead status "${lead.status}" — respecting their decline`,
+          );
           stats.invalidStatus++;
           continue;
         }
@@ -200,8 +229,12 @@ export async function processAIReplies(accountId, actuallySend = false) {
         // 2. If status suggests we haven't engaged (e.g., connection_sent, discovered),
         //    but they DID reply → they must have accepted. Auto-upgrade.
         if (AUTO_UPGRADE_STATUSES.includes(lead.status)) {
-          console.log(`   🔄 Auto-upgrading status: "${lead.status}" → "accepted"`);
-          console.log(`      Reason: They replied to us, which proves they accepted`);
+          console.log(
+            `   🔄 Auto-upgrading status: "${lead.status}" → "accepted"`,
+          );
+          console.log(
+            `      Reason: They replied to us, which proves they accepted`,
+          );
 
           await updateLeadStatus(lead.profileUrl, "accepted", {
             connectionAcceptedAt: new Date(),
@@ -221,7 +254,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
 
         // 3. Now check if we can proceed
         if (!ENGAGED_STATUSES.includes(lead.status)) {
-          console.log(`   ⚠️  Lead status "${lead.status}" — not eligible for AI reply, skip`);
+          console.log(
+            `   ⚠️  Lead status "${lead.status}" — not eligible for AI reply, skip`,
+          );
           stats.invalidStatus++;
           continue;
         }
@@ -268,18 +303,52 @@ export async function processAIReplies(accountId, actuallySend = false) {
         }
 
         // ═══ Update analysis in DB ═══
+        // await updateLeadStatus(lead.profileUrl, lead.status, {
+        //   aiAnalysis: {
+        //     ...(lead.aiAnalysis || {}),
+        //     interested: analysis.interested,
+        //     sentiment: analysis.sentiment,
+        //     lastAnalyzedAt: new Date(),
+        //   },
+        // });
+        const replyDate = new Date();
+        const isFirstReply = !lead.lastRepliedAt && !lead.firstReplyDate;
+
         await updateLeadStatus(lead.profileUrl, lead.status, {
+          // Dedicated fields (not buried in aiAnalysis mixed type)
+          aiInterestLevel: analysis.interested, // NEW dedicated field
+          aiSentiment: analysis.sentiment, // NEW dedicated field
+          lastRepliedAt: replyDate,
+          firstReplyDate: isFirstReply ? replyDate : lead.firstReplyDate,
+          totalReplies: (lead.totalReplies || 0) + 1, // increment count
+          lastReplyPreview: lastMessage.text.substring(0, 200), // save preview
           aiAnalysis: {
             ...(lead.aiAnalysis || {}),
             interested: analysis.interested,
             sentiment: analysis.sentiment,
-            lastAnalyzedAt: new Date(),
+            lastAnalyzedAt: replyDate,
           },
         });
+
         try {
           await updateLeadInSheet(lead.profileUrl, {
             AD: "Yes",
-            AE: lead.lastRepliedAt ? undefined : new Date().toISOString().split("T")[0],
+            AE: isFirstReply
+              ? replyDate.toISOString().split("T")[0]
+              : undefined,
+            AF: String((lead.totalReplies || 0) + 1), // Total Replies count
+            AG: lastMessage.text.substring(0, 200), // Last Reply Preview
+            AH: analysis.interested, // AI Interest Level
+            AI: analysis.sentiment, // AI Sentiment
+            AT: replyDate.toISOString(), // Last Updated
+          });
+        } catch {}
+        try {
+          await updateLeadInSheet(lead.profileUrl, {
+            AD: "Yes",
+            AE: lead.lastRepliedAt
+              ? undefined
+              : new Date().toISOString().split("T")[0],
             AG: lastMessage.text.substring(0, 200),
             AH: analysis.interested,
             AI: analysis.sentiment,
@@ -305,7 +374,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
         }
 
         // ═══ SEND reply ═══
-        console.log(`\n📨 Sending reply to conversation index ${convoIndex}...`);
+        console.log(
+          `\n📨 Sending reply to conversation index ${convoIndex}...`,
+        );
         const sendResult = await replyToConversationByIndex(
           page,
           convoIndex,
@@ -318,7 +389,10 @@ export async function processAIReplies(accountId, actuallySend = false) {
           console.log(`   ✅ Reply SENT to ${convo.name}`);
 
           const convoDoc = await getOrCreateConversation(
-            lead._id, lead.profileUrl, lead.name, accountId,
+            lead._id,
+            lead.profileUrl,
+            lead.name,
+            accountId,
           );
           await addMessage(convoDoc._id, "us", replyText, true);
 
@@ -326,7 +400,8 @@ export async function processAIReplies(accountId, actuallySend = false) {
             await updateLeadStatus(lead.profileUrl, "interested");
             try {
               await updateLeadInSheet(lead.profileUrl, {
-                AO: "interested", AJ: "Yes",
+                AO: "interested",
+                AJ: "Yes",
               });
             } catch {}
           } else if (analysis.interested === "maybe") {
@@ -344,7 +419,9 @@ export async function processAIReplies(accountId, actuallySend = false) {
 
         if (i < toReply.length - 1) {
           const cooldown = 60000 + Math.floor(Math.random() * 120000);
-          console.log(`\n⏰ Cooling ${Math.floor(cooldown / 1000)}s before next reply...`);
+          console.log(
+            `\n⏰ Cooling ${Math.floor(cooldown / 1000)}s before next reply...`,
+          );
           await new Promise((r) => setTimeout(r, cooldown));
         }
       } catch (err) {
@@ -353,20 +430,38 @@ export async function processAIReplies(accountId, actuallySend = false) {
       }
     }
 
-    console.log(`\n╔═══════════════════════════════════════════════════════════╗`);
-    console.log(`║  AI REPLY PROCESSOR COMPLETE                               ║`);
-    console.log(`║                                                            ║`);
-    console.log(`║  📥 Conversations scanned: ${String(stats.scanned).padEnd(31)}║`);
+    console.log(
+      `\n╔═══════════════════════════════════════════════════════════╗`,
+    );
+    console.log(
+      `║  AI REPLY PROCESSOR COMPLETE                               ║`,
+    );
+    console.log(
+      `║                                                            ║`,
+    );
+    console.log(
+      `║  📥 Conversations scanned: ${String(stats.scanned).padEnd(31)}║`,
+    );
     console.log(`║  🎯 Needing reply: ${String(stats.needsReply).padEnd(39)}║`);
-    console.log(`║  🔄 Auto-upgraded status: ${String(stats.autoUpgraded).padEnd(32)}║`);
+    console.log(
+      `║  🔄 Auto-upgraded status: ${String(stats.autoUpgraded).padEnd(32)}║`,
+    );
     console.log(`║  🧠 Analyzed: ${String(stats.analyzed).padEnd(44)}║`);
     console.log(`║  ✅ Replies sent: ${String(stats.replied).padEnd(40)}║`);
-    console.log(`║  🛑 Not interested: ${String(stats.notInterested).padEnd(38)}║`);
+    console.log(
+      `║  🛑 Not interested: ${String(stats.notInterested).padEnd(38)}║`,
+    );
     console.log(`║  ⏭️  Skipped: ${String(stats.skipped).padEnd(44)}║`);
-    console.log(`║  🚫 No lead match: ${String(stats.noLeadMatch).padEnd(39)}║`);
-    console.log(`║  ⚠️  Invalid status: ${String(stats.invalidStatus).padEnd(37)}║`);
+    console.log(
+      `║  🚫 No lead match: ${String(stats.noLeadMatch).padEnd(39)}║`,
+    );
+    console.log(
+      `║  ⚠️  Invalid status: ${String(stats.invalidStatus).padEnd(37)}║`,
+    );
     console.log(`║  ❌ Failed: ${String(stats.failed).padEnd(47)}║`);
-    console.log(`╚═══════════════════════════════════════════════════════════╝\n`);
+    console.log(
+      `╚═══════════════════════════════════════════════════════════╝\n`,
+    );
   } catch (err) {
     console.error(`❌ Fatal: ${err.message}`);
     console.error(err.stack);
@@ -422,11 +517,19 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function syncConversationMessages(lead, accountId, leadName, inboxMessages) {
+async function syncConversationMessages(
+  lead,
+  accountId,
+  leadName,
+  inboxMessages,
+) {
   if (!lead || !inboxMessages || inboxMessages.length === 0) return;
 
   const convo = await getOrCreateConversation(
-    lead._id, lead.profileUrl, leadName, accountId,
+    lead._id,
+    lead.profileUrl,
+    leadName,
+    accountId,
   );
 
   const existingTexts = new Set(convo.messages.map((m) => m.text.trim()));

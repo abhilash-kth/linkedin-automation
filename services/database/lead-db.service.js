@@ -137,11 +137,68 @@ export async function shouldSkipLead(profileUrl, minDaysSince = 7) {
   return daysSinceLastAction < minDaysSince;
 }
 
+// export async function upsertLead(leadData) {
+//   await connectDB();
+//   const lead = await Lead.findOneAndUpdate(
+//     { profileUrl: leadData.profileUrl },
+//     { $set: leadData },
+//     { upsert: true, returnDocument: "after" },
+//   );
+//   return lead;
+// }
+
 export async function upsertLead(leadData) {
   await connectDB();
+
+  // Fields that should NEVER be overwritten with empty/null values
+  // if a better value already exists in MongoDB
+  const PROTECT_IF_EMPTY = [
+    "title",
+    "headline",
+    "email",
+    "phone",
+    "website",
+    "location",
+    "company",
+    "about",
+    "firstName",
+    "lastName",
+    "vanityName",
+  ];
+
+  // Check if lead already exists
+  const existing = await Lead.findOne(
+    { profileUrl: leadData.profileUrl },
+    PROTECT_IF_EMPTY.reduce((acc, f) => ({ ...acc, [f]: 1 }), {}),
+  );
+
+  // Build safe $set — skip empty values for protected fields
+  const safeSet = { ...leadData };
+
+  if (existing) {
+    for (const field of PROTECT_IF_EMPTY) {
+      const incomingValue = leadData[field];
+      const existingValue = existing[field];
+
+      const incomingEmpty =
+        incomingValue === null ||
+        incomingValue === undefined ||
+        incomingValue === "";
+
+      const existingHasValue =
+        existingValue !== null &&
+        existingValue !== undefined &&
+        existingValue !== "";
+
+      if (incomingEmpty && existingHasValue) {
+        delete safeSet[field];
+      }
+    }
+  }
+
   const lead = await Lead.findOneAndUpdate(
     { profileUrl: leadData.profileUrl },
-    { $set: leadData },
+    { $set: safeSet },
     { upsert: true, returnDocument: "after" },
   );
   return lead;

@@ -1,6 +1,13 @@
-import { humanClick, humanTypeText, humanMove } from "../../helpers/human-click.helper.js";
+import {
+  humanClick,
+  humanTypeText,
+  humanMove,
+} from "../../helpers/human-click.helper.js";
 import { randomDelay } from "../../helpers/delay.helper.js";
-import { dismissPremiumModal } from "./premium.service.js";
+import {
+  dismissPremiumModal,
+  detectPremiumModalType,
+} from "./premium.service.js";
 import { safeGoto } from "../browser/navigation.service.js";
 
 /**
@@ -9,7 +16,12 @@ import { safeGoto } from "../browser/navigation.service.js";
  *
  * The convoIndex is set by scanInbox() as data-inbox-index attribute
  */
-export async function replyToConversationByIndex(page, convoIndex, replyText, actuallySend = false) {
+export async function replyToConversationByIndex(
+  page,
+  convoIndex,
+  replyText,
+  actuallySend = false,
+) {
   console.log(`\n💬 Opening conversation at index ${convoIndex}`);
 
   try {
@@ -84,7 +96,9 @@ export async function replyToConversationByIndex(page, convoIndex, replyText, ac
 
     const clickCoords = freshCoords || convoInfo;
 
-    console.log(`   🖱️  Clicking conversation at (${clickCoords.x}, ${clickCoords.y})...`);
+    console.log(
+      `   🖱️  Clicking conversation at (${clickCoords.x}, ${clickCoords.y})...`,
+    );
     await humanMove(page, clickCoords.x, clickCoords.y);
     await randomDelay(400, 800);
     await humanClick(page, clickCoords.x, clickCoords.y);
@@ -108,7 +122,12 @@ export async function replyToConversationByIndex(page, convoIndex, replyText, ac
     }
 
     if (!composerReady) {
-      await dismissPremiumModal(page);
+      const modalType = await detectPremiumModalType(page);
+      if (modalType === "inmail_limit" || modalType === "generic") {
+        console.log(`   💎 Premium block during composer wait (${modalType})`);
+        await dismissPremiumModal(page);
+        return { success: false, reason: "premium_required" };
+      }
       return { success: false, reason: "composer_not_ready" };
     }
 
@@ -118,21 +137,34 @@ export async function replyToConversationByIndex(page, convoIndex, replyText, ac
     const openedConvoInfo = await page.evaluate(() => {
       // Get header name of currently open conversation
       const headerName =
-        document.querySelector(".msg-thread__link-to-profile")?.textContent?.trim() ||
+        document
+          .querySelector(".msg-thread__link-to-profile")
+          ?.textContent?.trim() ||
         document.querySelector(".msg-title-bar__title")?.textContent?.trim() ||
-        document.querySelector("h2.msg-entity-lockup__entity-title")?.textContent?.trim() ||
+        document
+          .querySelector("h2.msg-entity-lockup__entity-title")
+          ?.textContent?.trim() ||
         "";
       return { headerName };
     });
 
-    console.log(`   🔍 Opened conversation with: "${openedConvoInfo.headerName}"`);
+    console.log(
+      `   🔍 Opened conversation with: "${openedConvoInfo.headerName}"`,
+    );
 
     // Verify name matches expected
     if (openedConvoInfo.headerName && convoInfo.name) {
-      const openedFirstName = openedConvoInfo.headerName.split(" ")[0].toLowerCase();
+      const openedFirstName = openedConvoInfo.headerName
+        .split(" ")[0]
+        .toLowerCase();
       const expectedFirstName = convoInfo.name.split(" ")[0].toLowerCase();
-      if (!openedFirstName.includes(expectedFirstName) && !expectedFirstName.includes(openedFirstName)) {
-        console.log(`   ⚠️  WARNING: Opened conversation with different person!`);
+      if (
+        !openedFirstName.includes(expectedFirstName) &&
+        !expectedFirstName.includes(openedFirstName)
+      ) {
+        console.log(
+          `   ⚠️  WARNING: Opened conversation with different person!`,
+        );
         console.log(`      Expected: ${convoInfo.name}`);
         console.log(`      Opened: ${openedConvoInfo.headerName}`);
         return { success: false, reason: "wrong_conversation_opened" };
@@ -150,14 +182,18 @@ export async function replyToConversationByIndex(page, convoIndex, replyText, ac
       };
     });
 
-    if (!composerCoords) return { success: false, reason: "composer_coords_not_found" };
+    if (!composerCoords)
+      return { success: false, reason: "composer_coords_not_found" };
 
     await humanClick(page, composerCoords.x, composerCoords.y);
     await randomDelay(800, 1500);
 
     await page.evaluate(() => {
       const el = document.querySelector(".msg-form__contenteditable");
-      if (el) { el.focus(); el.click(); }
+      if (el) {
+        el.focus();
+        el.click();
+      }
     });
 
     await page.keyboard.press("Control+a");
@@ -212,8 +248,34 @@ export async function replyToConversationByIndex(page, convoIndex, replyText, ac
     await humanClick(page, sendCoords.x, sendCoords.y);
     await randomDelay(3000, 5000);
 
-    if (await dismissPremiumModal(page)) {
+    // Import at top: import { detectPremiumModalType, dismissPremiumModal } from "./premium.service.js";
+    // (Update your existing import statement)
+
+    // Only fail if it's ACTUALLY a premium block (not "Verify" popup or other benign dialogs)
+    const modalType = await detectPremiumModalType(page);
+    if (modalType === "inmail_limit" || modalType === "notes_limit") {
+      console.log(`   💎 Premium block detected (${modalType}) — dismissing`);
+      await dismissPremiumModal(page);
       return { success: false, reason: "premium_required" };
+    }
+
+    // Dismiss any other benign dialog that might have appeared (verify popup, etc.)
+    if (modalType === "generic") {
+      console.log(`   ℹ️  Non-critical dialog detected — dismissing`);
+      await dismissPremiumModal(page);
+    }
+
+    // Verify message actually sent by checking composer is now empty
+    const composerCleared = await page.evaluate(() => {
+      const el = document.querySelector(".msg-form__contenteditable");
+      if (!el) return true;
+      const text = (el.textContent || "").trim();
+      return text.length === 0;
+    });
+
+    if (!composerCleared) {
+      console.log(`   ⚠️  Composer still has text — send may have failed`);
+      return { success: false, reason: "composer_not_cleared" };
     }
 
     console.log(`   ✅ Reply SENT`);
@@ -228,7 +290,12 @@ export async function replyToConversationByIndex(page, convoIndex, replyText, ac
  * LEGACY: Open by name — kept for backward compatibility
  * Only use for manual outreach, NOT for AI replies (name-matching is unreliable)
  */
-export async function openConversationAndReply(page, leadName, replyText, actuallySend = false) {
+export async function openConversationAndReply(
+  page,
+  leadName,
+  replyText,
+  actuallySend = false,
+) {
   console.log(`\n⚠️  Using legacy name-based reply for ${leadName}`);
 
   try {
@@ -258,7 +325,8 @@ export async function openConversationAndReply(page, leadName, replyText, actual
       return { found: false };
     }, leadName);
 
-    if (!clicked.found) return { success: false, reason: "conversation_not_found" };
+    if (!clicked.found)
+      return { success: false, reason: "conversation_not_found" };
 
     await humanClick(page, clicked.x, clicked.y);
     await randomDelay(3000, 5000);

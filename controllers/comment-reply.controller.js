@@ -429,14 +429,19 @@ import {
   appendToSheet,
   buildLeadRow,
 } from "../services/integrations/google-sheets.service.js";
+import {
+  getCommentBlockStatus,
+  setCommentBlock,
+  printBlockBanner,
+} from "../helpers/comment-limit-tracker.helper.js";
 import { connectDB } from "../services/database/mongodb.service.js";
 import { randomDelay } from "../helpers/delay.helper.js";
 import Lead from "../models/Lead.model.js";
 
-const MAX_REPLIES_PER_RUN = 5;
+const MAX_REPLIES_PER_RUN = 3; // reduced from 5 for safety
 const MAX_POSTS_TO_CHECK = 15;
-const COOLDOWN_MIN_SEC = 45;
-const COOLDOWN_MAX_SEC = 120;
+const COOLDOWN_MIN_SEC = 180; // was 45 — 3 min minimum
+const COOLDOWN_MAX_SEC = 300; // was 120 — 5 min maximum
 const OUR_NAME = "Abhilash Chaurasiya";
 
 export async function processCommentReplies(accountId, actuallySend = false) {
@@ -452,6 +457,32 @@ export async function processCommentReplies(accountId, actuallySend = false) {
   );
 
   await connectDB();
+
+  // ═══ STEP 0: Check if commenting is blocked ═══
+  // Replies use the same LinkedIn rate limit as comments
+  if (actuallySend) {
+    const blockStatus = await getCommentBlockStatus(accountId);
+    if (blockStatus.blocked) {
+      printBlockBanner(
+        accountId,
+        blockStatus.hoursRemaining,
+        blockStatus.blockedUntil,
+      );
+      console.log(`⏸️  Reply mode: DISABLED (comment/reply block active)`);
+      console.log(`   Reason: ${blockStatus.reason}`);
+      console.log(
+        `   Blocked at: ${new Date(blockStatus.blockedAt).toLocaleString("en-US")}`,
+      );
+      console.log(
+        `\n💡 To manually unblock (only if you're SURE LinkedIn cleared it):`,
+      );
+      console.log(
+        `   Delete: data/comment-block-state.json OR remove the "${accountId}" entry\n`,
+      );
+      return;
+    }
+    console.log(`✅ Comment/reply block status: OK (not blocked)\n`);
+  }
 
   const commentedLeads = await Lead.find({
     accountId,
@@ -623,6 +654,9 @@ export async function processCommentReplies(accountId, actuallySend = false) {
                 r.sender === "them" &&
                 r.text.trim() === commentInfo.authorReplyText.trim(),
             );
+            // ── ADD THIS after "const alreadyLogged = ..." and before generating reply ──
+            // Update sheet immediately when we detect author replied to our comment
+            // This ensures the sheet shows the reply even if we're in safe mode
             if (!alreadyLogged) {
               await addReplyToThread(
                 thread._id,
@@ -630,6 +664,36 @@ export async function processCommentReplies(accountId, actuallySend = false) {
                 commentInfo.authorReplyText,
                 false,
               );
+
+              // Save their reply to Lead model
+              await updateLeadStatus(lead.profileUrl, lead.status, {
+                lastCommentReplyAt: new Date(),
+                commentReplyCount: (lead.commentReplyCount || 0) + 1,
+                $push: {
+                  commentReplies: {
+                    sender: "them",
+                    text: commentInfo.authorReplyText,
+                    timestamp: new Date(),
+                  },
+                },
+              });
+
+              // Update sheet with THEIR comment reply — this is the key fix
+              // "new comment reply → update sheet"
+              try {
+                await updateLeadInSheet(lead.profileUrl, {
+                  AD: "Yes", // Replied = Yes
+                  AG: commentInfo.authorReplyText.substring(0, 200), // Last Reply Preview
+                  AH: "maybe", // AI Interest (they engaged)
+                  AR: `Post comment reply from ${lead.name}: ${commentInfo.authorReplyText.substring(0, 150)}`,
+                  AT: new Date().toISOString(), // Last Updated
+                });
+                console.log(
+                  `   📊 Sheet updated — author replied to our comment`,
+                );
+              } catch (sheetErr) {
+                console.log(`   ⚠️  Sheet update failed: ${sheetErr.message}`);
+              }
             }
 
             console.log(
@@ -666,25 +730,61 @@ export async function processCommentReplies(accountId, actuallySend = false) {
                   commentInfo.authorReplyId,
                 );
 
+                // ═══ CRITICAL: Handle rate-limit signal ═══
+                if (replyResult.stopAllComments) {
+                  await handleRateLimitStop(accountId, stats, "author_reply");
+                  return; // exit entire function
+                }
+
                 if (replyResult.success) {
                   stats.repliesToAuthor++;
                   repliesSent++;
                   didReplyThisRound = true;
                   console.log(`   ✅ Replied to ${lead.name}!`);
 
+                  const now = new Date();
+
                   await addReplyToThread(thread._id, "us", replyText, true);
+
+                  // Update Lead MongoDB with comment reply data
                   await updateLeadStatus(lead.profileUrl, lead.status, {
+                    // Increment comment reply count
+                    commentReplyCount: (lead.commentReplyCount || 0) + 1,
+                    lastCommentReplyAt: now,
+                    // Push to commentReplies array
+                    $push: {
+                      commentReplies: {
+                        sender: "us",
+                        text: replyText,
+                        timestamp: now,
+                      },
+                    },
                     aiAnalysis: {
                       ...(lead.aiAnalysis || {}),
-                      lastCommentReplyAt: new Date(),
+                      lastCommentReplyAt: now,
                       commentReplyText: replyText,
                     },
                   });
+
+                  // Update sheet with comment reply info
                   try {
+                    const existingNotes = ""; // will be merged in updateLeadInSheet
                     await updateLeadInSheet(lead.profileUrl, {
-                      AR: `Comment reply to author: ${replyText.substring(0, 100)}`,
+                      // AG = Last Reply Preview — show comment reply
+                      AG: `[Comment] ${commentInfo.authorReplyText.substring(0, 150)}`,
+                      // AH = AI Interest Level — author replied to our comment = interested signal
+                      AH: "maybe",
+                      // AR = Notes — track comment reply history
+                      AR: `Comment reply to ${lead.name}: ${replyText.substring(0, 150)}`,
+                      // AT = Last Updated
+                      AT: now.toISOString(),
                     });
-                  } catch {}
+                    console.log(`   📊 Sheet updated with comment reply data`);
+                  } catch (sheetErr) {
+                    console.log(
+                      `   ⚠️  Sheet update failed: ${sheetErr.message}`,
+                    );
+                  }
                 } else {
                   console.log(`   ❌ Reply failed: ${replyResult.reason}`);
                   stats.failed++;
@@ -753,6 +853,11 @@ export async function processCommentReplies(accountId, actuallySend = false) {
               true,
               mention.commentId,
             );
+
+            if (replyResult.stopAllComments) {
+              await handleRateLimitStop(accountId, stats, "author_mention");
+              return;
+            }
 
             if (replyResult.success) {
               stats.repliesToAuthorMentions++;
@@ -906,6 +1011,11 @@ export async function processCommentReplies(accountId, actuallySend = false) {
               mention.commentId,
             );
 
+            if (replyResult.stopAllComments) {
+              await handleRateLimitStop(accountId, stats, "third_party");
+              return;
+            }
+
             if (replyResult.success) {
               stats.repliesToThirdParty++;
               repliesSent++;
@@ -1030,5 +1140,45 @@ export async function processCommentReplies(accountId, actuallySend = false) {
   } finally {
     await closeBrowser(context);
     console.log(`🔒 Browser closed\n`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RATE LIMIT HANDLER
+// ═══════════════════════════════════════════════════════════════
+async function handleRateLimitStop(accountId, stats, scenario) {
+  console.log(``);
+  console.log(`╔═══════════════════════════════════════════════════════════╗`);
+  console.log(
+    `║  🛑🛑🛑  REPLY RATE LIMIT HIT  🛑🛑🛑                       ║`,
+  );
+  console.log(
+    `║  Reply did NOT appear in DOM after posting                  ║`,
+  );
+  console.log(
+    `║  LinkedIn silently blocked our reply                        ║`,
+  );
+  console.log(`║                                                            ║`);
+  console.log(
+    `║  🔒 Setting 48-hour block to protect account                ║`,
+  );
+  console.log(`║  📊 Scenario: ${scenario.padEnd(43)}║`);
+  console.log(
+    `║  📊 Replies made this run: ${String(stats.repliesToAuthor + stats.repliesToAuthorMentions + stats.repliesToThirdParty).padEnd(32)}║`,
+  );
+  console.log(`╚═══════════════════════════════════════════════════════════╝`);
+  console.log(``);
+
+  const blockResult = await setCommentBlock(
+    accountId,
+    `reply_${scenario}_not_visible`,
+  );
+  if (blockResult) {
+    console.log(
+      `   ✅ Block set until: ${blockResult.blockedUntil.toLocaleString("en-US")}`,
+    );
+    console.log(
+      `   ⏸️  Next reply/comment allowed after ${blockResult.hoursRemaining} hours\n`,
+    );
   }
 }

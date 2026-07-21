@@ -219,22 +219,15 @@ export async function launchBrowser(accountId) {
 export function setupTabBlocker(context) {
   context.on("page", async (newPage) => {
     try {
-      // Wait briefly for the URL to load
-      await newPage
-        .waitForLoadState("domcontentloaded", { timeout: 3000 })
-        .catch(() => {});
-
+      await newPage.waitForLoadState("domcontentloaded", { timeout: 3000 }).catch(() => {});
       const finalUrl = newPage.url();
 
-      // Check if URL is an allowed domain
       const allowed = SELECTORS.externalTabs.allowedDomains;
-      const isBlank = finalUrl === SELECTORS.externalTabs.blankUrl;
+      const isBlank = finalUrl === SELECTORS.externalTabs.blankUrl;  // ← "about:blank"
       const isAllowed = allowed.some((domain) => finalUrl.includes(domain));
 
-      if (!isBlank && !isAllowed) {
-        console.log(
-          `   🚫 Blocking external tab: ${finalUrl.substring(0, 80)}`,
-        );
+      if (!isBlank && !isAllowed) {   // ← Skips blank tabs
+        console.log(`   🚫 Blocking external tab: ${finalUrl.substring(0, 80)}`);
         await newPage.close().catch(() => {});
       }
     } catch {}

@@ -47,7 +47,7 @@ export const SELECTORS = {
       'a[aria-label*="1st"]',
     ],
     authorName: 'a[href*="/in/"] p span',
-    authorHeadline: "p.e6590096.a303fa94",
+    authorHeadline: "p._2874399e",
     postTimeClass: "p.e6590096.a303fa94.e2049567",
     postTimePattern: /^(\d+[wdhms])\s*[•·]/,
     content: '[data-testid="expandable-text-box"]',
@@ -189,6 +189,7 @@ export const SELECTORS = {
 
     // Headline (text below name)
     headline: [
+      "p._2874399e",
       "main .text-body-medium.break-words",
       "main .pv-text-details__left-panel .text-body-medium",
       "main div.mt2 div.text-body-medium",
@@ -240,8 +241,7 @@ export const SELECTORS = {
     // ── Pending (already sent invitation) ──
     pendingByComponentKey:
       '[componentkey*="_pending"], [componentkey*=":pending"]',
-    pendingAriaPattern:
-      '[aria-label*="Pending" i][aria-label*="withdraw" i]',
+    pendingAriaPattern: '[aria-label*="Pending" i][aria-label*="withdraw" i]',
     pendingButtonText: "Pending",
 
     // ── Incoming invitation Accept button ──
@@ -476,7 +476,7 @@ export const SELECTORS = {
     ],
   },
 
-    // ═════════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════════
   // 💬 COMMENT CHECKER (post page analysis)
   // Detects: author replies, author mentions, non-author mentions,
   //          nested replies to our comment
@@ -522,10 +522,7 @@ export const SELECTORS = {
       ":scope > .comments-thread-entity .comments-thread-item .comments-comment-entity__content",
       ":scope > * .comments-comment-entity__content",
     ],
-    mentionSelector: [
-      'a[href*="/in/"]',
-      "a.ql-mention",
-    ],
+    mentionSelector: ['a[href*="/in/"]', "a.ql-mention"],
   },
 
   // ═════════════════════════════════════════════════════════════════
@@ -616,14 +613,12 @@ export const SELECTORS = {
     postTime: /^(\d+[wdhms])\s*[•·]/,
     distance: /^·?\s*(1st|2nd|3rd)$/,
     phone: /^\+?\d{10,15}$/,
-    phoneMatch:
-      /(\+?\d{1,3}[\s\-]?\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})/g,
+    phoneMatch: /(\+?\d{1,3}[\s\-]?\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})/g,
     email: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
     verifiedText: /Verified Profile/gi,
     distanceText: /\s*(1st|2nd|3rd|3rd\+)\+?\s*/gi,
     activityUrn: /urn[:%3A]li[:%3A]activity[:%3A](\d+)/i,
-    activityIdFromHighlight:
-      /highlightedUpdateUrn=urn%3Ali%3Aactivity%3A(\d+)/,
+    activityIdFromHighlight: /highlightedUpdateUrn=urn%3Ali%3Aactivity%3A(\d+)/,
   },
 
   // ═════════════════════════════════════════════════════════════════

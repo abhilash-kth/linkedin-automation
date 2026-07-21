@@ -15,7 +15,7 @@ We help founders and businesses build, scale, and modernize their tech products.
 // Daily comment counter
 let dailyCommentCount = 0;
 let lastResetDate = new Date().toDateString();
-const MAX_DAILY_COMMENTS = 20;
+const MAX_DAILY_COMMENTS = 8;
 
 export function resetDailyCounter() {
   const today = new Date().toDateString();
