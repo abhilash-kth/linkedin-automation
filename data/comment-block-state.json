@@ -1,12 +1,12 @@
 {
   "account_1": {
-    "blockedAt": "2026-07-21T10:11:31.788Z",
-    "blockedUntil": "2026-07-23T10:11:31.788Z",
+    "blockedAt": "2026-07-24T10:25:01.831Z",
+    "blockedUntil": "2026-07-26T10:25:01.830Z",
     "reason": "comment_not_visible_in_dom"
   },
   "account_2": {
-    "blockedAt": "2026-07-23T12:41:10.734Z",
-    "blockedUntil": "2026-07-25T12:41:10.732Z",
+    "blockedAt": "2026-07-24T10:54:21.080Z",
+    "blockedUntil": "2026-07-26T10:54:21.078Z",
     "reason": "comment_not_visible_in_dom"
   }
 }

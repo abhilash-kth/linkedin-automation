@@ -1653,84 +1653,316 @@ Your message:`;
   return await callAIWithValidation(prompt, firstName, 40, 300, "warm message");
 }
 
+// async function generateInMailSubject(lead) {
+//   const firstName = (lead.name || "").split(" ")[0];
+//   const postSnippet = (lead.postContent || "").substring(0, 200).trim();
+//   const topMatch = lead.aiAnalysis?.topMatch || lead.scoreReasons?.[0] || "";
+//   const prompt = `Write a LinkedIn InMail SUBJECT line for outreach to ${firstName}. CONTEXT is for you only.
+
+// CONTEXT:
+// Person: ${firstName}, ${lead.title || "Professional"}
+// Their recent post topic: ${postSnippet.substring(0, 150)}
+// Why they're relevant: ${topMatch}
+// Our angle: Partnership, collaboration, or helping with their tech needs
+
+// The subject should:
+// - Be 3-8 words
+// - Reference their work or challenge naturally
+// - Sound like a peer reaching out, not a salesperson
+// - NOT use "Quick hello" or generic phrases
+// - NOT use ALL CAPS or exclamation marks
+// - Feel personal and specific
+
+// Write ONLY the subject line. No quotes, no prefixes.
+
+// Your subject:`;
+
+//   for (let attempt = 1; attempt <= 3; attempt++) {
+//     const result = await callAI(prompt, { maxTokens: 60, temperature: 0.8 });
+//     if (!result.success) {
+//       if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
+//       continue;
+//     }
+//     let subject = (result.text || "").trim();
+//     subject = subject.replace(/^["']|["']$/g, "");
+//     subject = subject.replace(/^Subject:\s*/i, "");
+//     subject = subject.replace(/^Your subject:\s*/i, "");
+//     subject = subject.split("\n")[0].trim();
+//     const badPatterns = [/^write/i, /^good example/i, /^here/i, /context:/i];
+//     if (badPatterns.some((p) => p.test(subject))) {
+//       if (attempt < 3) continue;
+//       return "Quick hello";
+//     }
+//     if (subject.length < 5 || subject.length > 60) {
+//       if (attempt < 3) continue;
+//     }
+//     return subject;
+//   }
+//   return "Quick hello";
+// }
+
 async function generateInMailSubject(lead) {
   const firstName = (lead.name || "").split(" ")[0];
-  const postSnippet = (lead.postContent || "").substring(0, 200).trim();
-  const topMatch = lead.aiAnalysis?.topMatch || lead.scoreReasons?.[0] || "";
-  const prompt = `Write a LinkedIn InMail SUBJECT line for outreach to ${firstName}. CONTEXT is for you only.
+  const company = lead.company || "";
+  const title = lead.title || "Professional";
+  const postSnippet = (lead.postContent || "").substring(0, 300).trim();
+  const topMatch =
+    lead.aiAnalysis?.topMatch || lead.scoreReasons?.join(", ") || "";
 
-CONTEXT:
-Person: ${firstName}, ${lead.title || "Professional"}
-Their recent post topic: ${postSnippet.substring(0, 150)}
-Why they're relevant: ${topMatch}
-Our angle: Partnership, collaboration, or helping with their tech needs
+  const prompt = `
+You are writing a LinkedIn InMail SUBJECT.
 
-The subject should:
-- Be 3-8 words
-- Reference their work or challenge naturally
-- Sound like a peer reaching out, not a salesperson
-- NOT use "Quick hello" or generic phrases
-- NOT use ALL CAPS or exclamation marks
-- Feel personal and specific
+The subject should look like it was written by a founder reaching out to another professional.
 
-Write ONLY the subject line. No quotes, no prefixes.
+==================================================
+LEAD
+==================================================
 
-Your subject:`;
+Name:
+${firstName}
+
+Title:
+${title}
+
+Company:
+${company}
+
+Recent Post:
+${postSnippet}
+
+Why we're reaching out:
+${topMatch}
+
+==================================================
+RULES
+==================================================
+
+Write ONE subject line.
+
+Length:
+4–8 words (maximum 55 characters).
+
+Tone:
+• Personal
+• Professional
+• Curious
+• Founder-to-founder
+• Not salesy
+
+Avoid:
+
+Quick hello
+
+Let's connect
+
+Business proposal
+
+Opportunity
+
+Collaboration opportunity
+
+Greetings
+
+Following up
+
+Checking in
+
+Partnership opportunity
+
+AI services
+
+Software development
+
+Kriscent
+
+Do NOT use:
+
+• ALL CAPS
+• Emojis
+• Exclamation marks
+• Quotes
+• Generic sales language
+
+Prefer referencing:
+
+• Their recent post
+• Their product
+• Their hiring
+• AI
+• SaaS
+• Engineering
+• Startup
+• Growth
+• Scaling
+• Something specific about them
+
+Examples (style only):
+
+Your AI roadmap
+
+Question about your product
+
+Scaling your engineering team
+
+Your recent hiring update
+
+Thought on your MVP
+
+Curious about your approach
+
+Following your startup journey
+
+Return ONLY the subject line.
+`;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const result = await callAI(prompt, { maxTokens: 60, temperature: 0.8 });
+    const result = await callAI(prompt, {
+      maxTokens: 40,
+      temperature: 0.9,
+    });
+
     if (!result.success) {
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1000));
       continue;
     }
+
     let subject = (result.text || "").trim();
-    subject = subject.replace(/^["']|["']$/g, "");
-    subject = subject.replace(/^Subject:\s*/i, "");
-    subject = subject.replace(/^Your subject:\s*/i, "");
-    subject = subject.split("\n")[0].trim();
-    const badPatterns = [/^write/i, /^good example/i, /^here/i, /context:/i];
-    if (badPatterns.some((p) => p.test(subject))) {
-      if (attempt < 3) continue;
-      return "Quick hello";
+
+    subject = subject
+      .replace(/^["']|["']$/g, "")
+      .replace(/^Subject:\s*/i, "")
+      .split("\n")[0]
+      .trim();
+
+    if (
+      subject.length >= 4 &&
+      subject.length <= 55 &&
+      !/quick hello|business proposal|opportunity/i.test(subject)
+    ) {
+      return subject;
     }
-    if (subject.length < 5 || subject.length > 60) {
-      if (attempt < 3) continue;
-    }
-    return subject;
   }
-  return "Quick hello";
+
+  const fallbackSubjects = [
+    "Thoughts on your recent post",
+    "Your product journey",
+    "Your AI roadmap",
+    "Scaling your team",
+    "A quick question",
+    "Your engineering approach",
+    "Curious about your work",
+    "Following your recent update",
+  ];
+
+  return fallbackSubjects[Math.floor(Math.random() * fallbackSubjects.length)];
 }
 
 async function generateInMailMessage(lead) {
   const firstName = (lead.name || "").split(" ")[0];
-  const postSnippet = (lead.postContent || "").substring(0, 250).trim();
+  const postSnippet = (lead.postContent || "").substring(0, 400).trim();
   const topMatch = lead.aiAnalysis?.topMatch || "";
-  const prompt = `Write a LinkedIn InMail message to ${firstName}. CONTEXT is for you only.
+  const prompt = `
+You are Abhilash from Kriscent Techno Hub Pvt. Ltd.
 
-CONTEXT:
-Person: ${firstName}, ${lead.title || "Professional"}
-Their recent post: ${postSnippet}
-Why relevant: ${topMatch}
-Our business: Kriscent — software development agency (SaaS, AI, MVPs)
-Our approach: Genuine outreach, offer partnership or help, not pushy sales
+Write a LinkedIn InMail.
 
-Write a message from you to ${firstName}. It should:
-- Start with "Hi ${firstName},"
-- Reference their post/work in ONE specific sentence
-- Briefly mention what you do (software dev / AI / SaaS) — casually
-- Suggest ONE thing: quick chat, share insights, explore collab
-- End with a soft CTA
-- Be under 500 characters
+==================================================
+LEAD
+==================================================
 
-Write ONLY the message. No prefixes.
+Name:
+${firstName}
 
-Your message:`;
+Role:
+${lead.title || "Professional"}
+
+Company:
+${lead.company || "Unknown"}
+
+Recent Post:
+${postSnippet}
+
+Reason for outreach:
+${topMatch}
+
+==================================================
+ABOUT KRISCENT
+==================================================
+
+Kriscent builds
+
+• AI Products
+• SaaS Platforms
+• MVPs
+• Custom Software
+• AI Automation
+
+==================================================
+GOAL
+==================================================
+
+Write a genuine founder-to-founder message.
+
+Do NOT sound like a salesperson.
+
+Build trust first.
+
+==================================================
+RULES
+==================================================
+
+Start with
+
+Hi ${firstName},
+
+Mention ONE thing from their post naturally.
+
+Don't say
+
+"I came across your post"
+
+"I noticed"
+
+"I hope you're doing well"
+
+"We'd love to"
+
+"We help companies"
+
+"Our services"
+
+"Quick chat"
+
+"Schedule a call"
+
+Mention Kriscent only once.
+
+If relevant, mention what Kriscent builds in one short sentence.
+
+If there is a clear technical challenge, offer to exchange ideas—not sell.
+
+Close naturally.
+
+Finish with exactly:
+
+Best,
+
+Abhilash
+
+Kriscent Techno Hub Pvt. Ltd.
+
+kriscent.in
+
+Maximum 140 words.
+
+Return ONLY the message.
+`;
 
   return await callAIWithValidation(
     prompt,
     firstName,
-    100,
-    500,
+    80,
+    700,
     "InMail message",
   );
 }
@@ -1826,7 +2058,7 @@ async function sendInMailToLead(page, lead, context, stats, reason) {
   console.log(`\n💎 STEP 5: Try InMail`);
   console.log(`   📍 Reason: ${reason}`);
 
-   if (!page || page.isClosed()) {
+  if (!page || page.isClosed()) {
     console.log(`   ⚠️  Page is closed — cannot send InMail`);
     return { sent: false, reason: "page_closed" };
   }

@@ -2532,85 +2532,272 @@ export async function commentOnPost(
 
     // ═══════════════════════════════════════════════════════════════
     // STEP 8: STRICT VERIFICATION
-    // Comment MUST appear in the post's DOM.
-    // Editor state (empty/gone) is NOT trusted — LinkedIn clears
-    // the editor even when silently blocking the comment (rate limit).
-    // If comment not found after 3 retries → rate limit hit → 48h block.
+    // Order: toast poll → author+time+text match in DOM
     // ═══════════════════════════════════════════════════════════════
-    await randomDelay(4000, 6000);
 
-    const searchText = commentText.substring(0, 30).toLowerCase().trim();
+    // ── PART A: Poll for error toast (max 8s) ──
+    console.log(`   🔍 Polling for error toast (max 8s)...`);
+
+    let errorToast = null;
+    for (let i = 0; i < 16; i++) {
+      errorToast = await page.evaluate(() => {
+        const alerts = document.querySelectorAll('[role="alert"]');
+        for (const alert of alerts) {
+          const text = (alert.textContent || "").toLowerCase().trim();
+          const hasErrorIcon = !!alert.querySelector(
+            'svg[id*="signal-error"], svg[id*="error-medium"]',
+          );
+          const errorPhrases = [
+            "could not be created",
+            "couldn't be created",
+            "cannot be created",
+            "couldn't be posted",
+            "cannot be posted",
+            "can't be posted",
+            "try again later",
+            "please try again",
+            "something went wrong",
+            "unable to post",
+          ];
+          const hasErrorText = errorPhrases.some((p) => text.includes(p));
+          const hasHelpLink = !!alert.querySelector(
+            'a[href*="/help/linkedin/answer/a7437042"]',
+          );
+
+          if (hasErrorIcon || hasErrorText || hasHelpLink) {
+            return {
+              found: true,
+              text: alert.textContent.trim().substring(0, 200),
+            };
+          }
+        }
+        return null;
+      });
+
+      if (errorToast?.found) {
+        console.log(`   ⚡ Toast detected after ${(i + 1) * 500}ms`);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    if (errorToast?.found) {
+      console.log(``);
+      console.log(`   🚫🚫🚫 LINKEDIN ERROR TOAST DETECTED 🚫🚫🚫`);
+      console.log(`   📢 Toast: "${errorToast.text}"`);
+      console.log(`   🛑 Comment silently blocked`);
+      console.log(`   ⏸️  Setting 48-hour block`);
+      console.log(``);
+
+      await fullCleanup(page);
+      return {
+        success: false,
+        reason: "linkedin_error_toast",
+        toastText: errorToast.text,
+        stopAllComments: true,
+      };
+    }
+
+    console.log(`   ✅ No error toast — verifying comment in DOM`);
+
+    // ── PART B: Get current user's name (from top-right avatar or nav) ──
+    const myName = await page.evaluate(() => {
+      // Try multiple locations for logged-in user's name
+      const selectors = [
+        'a[href*="/in/"][aria-label*="View"]', // top nav avatar
+        'nav a[href*="/in/"]', // nav
+        '[class*="global-nav__me"] img', // me icon
+        'button[aria-label*="Me"] img', // me button
+      ];
+
+      // Look for own profile link in nav
+      const meLink = document.querySelector(
+        "a.global-nav__me-photo, a[data-test-global-nav-me]",
+      );
+      if (meLink) {
+        const img = meLink.querySelector("img");
+        if (img?.alt) return img.alt.trim();
+      }
+
+      // Fallback: look for "Me" section
+      const meSection = document.querySelector('[class*="global-nav__me"]');
+      if (meSection) {
+        const img = meSection.querySelector("img");
+        if (img?.alt) return img.alt.trim();
+      }
+
+      // Fallback: any img.alt that includes profile photo hint
+      const allImgs = document.querySelectorAll("img[alt]");
+      for (const img of allImgs) {
+        const alt = img.alt.trim();
+        if (
+          alt &&
+          !alt.toLowerCase().includes("view") &&
+          !alt.toLowerCase().includes("logo")
+        ) {
+          // heuristic: short 2-4 word name
+          const words = alt.split(/\s+/);
+          if (words.length >= 2 && words.length <= 4) return alt;
+        }
+      }
+
+      return null;
+    });
+
+    console.log(`   👤 Logged in as: ${myName || "unknown"}`);
+
+    // ── PART C: Wait and verify comment in DOM ──
+    await randomDelay(3000, 5000);
+
+    const searchText = commentText.substring(0, 25).toLowerCase().trim();
+    const searchTextFull = commentText.substring(0, 60).toLowerCase().trim();
 
     let commentFound = false;
-    let lastCommentCount = 0;
     let matchedVia = "";
 
     for (let attempt = 0; attempt <= 3; attempt++) {
       if (attempt > 0) {
-        console.log(
-          `   🔄 Retry ${attempt}/3: waiting for comment to appear in DOM...`,
-        );
+        console.log(`   🔄 Retry ${attempt}/3: waiting for comment in DOM...`);
         await randomDelay(4000, 6000);
+
+        // Scroll to comment section to trigger lazy load
+        try {
+          await page.evaluate(
+            ({ postTag, idx }) => {
+              const post = document.querySelector(`[${postTag}="${idx}"]`);
+              if (post)
+                post.scrollIntoView({ block: "end", behavior: "smooth" });
+            },
+            { postTag: SELECTORS.postCard.tag, idx: postIndex },
+          );
+          await randomDelay(1500, 2500);
+        } catch (e) {
+          console.log(`   ⚠️  Scroll error: ${e.message}`);
+        }
       }
 
       const check = await page.evaluate(
-        ({ postTag, idx, searchTxt, commentDisplaySels }) => {
-          const post = document.querySelector(`[${postTag}="${idx}"]`);
-          if (!post) return { found: false, count: 0, error: "no_post" };
+        ({ searchTxt, searchTxtFull, myAuthorName }) => {
+          // Find all comment articles on the page
+          const commentContainers = document.querySelectorAll(
+            '[componentkey*="replaceableComment"], article.comments-comment-entity, [class*="comments-comment-entity"], [class*="comments-comment-item"]',
+          );
 
-          // Search ONLY inside this specific post's DOM
-          for (const sel of commentDisplaySels) {
-            const els = post.querySelectorAll(sel);
-            for (const el of els) {
-              if ((el.textContent || "").toLowerCase().includes(searchTxt)) {
-                return { found: true, matchedSel: sel, count: 0 };
-              }
+          const results = {
+            totalComments: commentContainers.length,
+            matched: null,
+          };
+
+          for (const container of commentContainers) {
+            const text = (container.textContent || "").toLowerCase();
+
+            // Get author name from comment
+            const authorSpan = container.querySelector(
+              'span._5dfd82ea, a[href*="/in/"] span',
+            );
+            const authorText = authorSpan ? authorSpan.textContent.trim() : "";
+            const cleanAuthor = authorText
+              .replace(/\s*•.*$/, "") // remove "· 3rd+"
+              .replace(/,\s*(Open to work|hiring).*$/i, "") // remove badges
+              .trim();
+
+            // Get time badge (should be "now", "1s", "2s", etc.)
+            const timePatterns = /\b(now|just now|1s|2s|3s|\d+\s*second)\b/i;
+            const hasRecentTime = timePatterns.test(
+              container.textContent || "",
+            );
+
+            // Check text match
+            const textMatch = text.includes(searchTxt);
+            const fullTextMatch = text.includes(searchTxtFull);
+
+            // Check author match (if we know our name)
+            const authorMatch = myAuthorName
+              ? cleanAuthor
+                  .toLowerCase()
+                  .includes(myAuthorName.toLowerCase()) ||
+                myAuthorName.toLowerCase().includes(cleanAuthor.toLowerCase())
+              : false;
+
+            // Match confidence scoring:
+            // BEST: author + time + text
+            // GOOD: text + time
+            // OK:   full text match (60 chars)
+            // WEAK: short text match only
+            if (authorMatch && hasRecentTime && textMatch) {
+              results.matched = {
+                confidence: "high",
+                reason: "author+time+text",
+                author: cleanAuthor,
+              };
+              return results;
+            }
+            if (hasRecentTime && textMatch) {
+              results.matched = {
+                confidence: "medium",
+                reason: "time+text",
+                author: cleanAuthor,
+              };
+              return results;
+            }
+            if (fullTextMatch) {
+              results.matched = {
+                confidence: "medium",
+                reason: "full-text-match",
+                author: cleanAuthor,
+              };
+              return results;
+            }
+            if (textMatch && !results.matched) {
+              results.matched = {
+                confidence: "low",
+                reason: "short-text-match",
+                author: cleanAuthor,
+              };
+              // don't return yet — keep looking for stronger match
             }
           }
 
-          // Count comments in this post (for secondary detection)
-          const commentItems = post.querySelectorAll(
-            "article.comments-comment-entity, [class*='comments-comment-entity']",
-          );
-
-          return { found: false, count: commentItems.length };
+          return results;
         },
         {
-          postTag: SELECTORS.postCard.tag,
-          idx: postIndex,
           searchTxt: searchText,
-          commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
+          searchTxtFull: searchTextFull,
+          myAuthorName: myName,
         },
       );
 
       console.log(
-        `   📊 Verify [${attempt}]: found=${check.found}, comments in post=${check.count}${check.matchedSel ? `, via ${check.matchedSel}` : ""}`,
+        `   📊 Verify [${attempt}]: comments=${check.totalComments}, match=${check.matched ? `${check.matched.confidence} (${check.matched.reason}, author="${check.matched.author}")` : "none"}`,
       );
 
-      if (check.found) {
+      if (check.matched && check.matched.confidence !== "low") {
         commentFound = true;
-        matchedVia = check.matchedSel;
+        matchedVia = `${check.matched.confidence}:${check.matched.reason}`;
         break;
       }
 
-      lastCommentCount = check.count;
+      // Low confidence match on final attempt → accept it
+      if (attempt === 3 && check.matched?.confidence === "low") {
+        commentFound = true;
+        matchedVia = "low-confidence-text-only";
+        break;
+      }
     }
 
     await fullCleanup(page);
 
-    // ── SUCCESS: comment text found in post DOM ──
     if (commentFound) {
       console.log(
-        `   ✅ Comment VERIFIED — posted successfully (via ${matchedVia})`,
+        `   ✅ Comment VERIFIED — posted successfully (${matchedVia})`,
       );
       return { success: true, action: "commented" };
     }
 
-    // ── FAILURE: comment NOT in DOM after all retries = RATE LIMIT ──
+    // ── FAILURE ──
     console.log(``);
-    console.log(`   🚫🚫🚫 COMMENT NOT VISIBLE IN POST AFTER 3 RETRIES 🚫🚫🚫`);
-    console.log(`   🛑 LinkedIn silently blocked the comment (rate limit hit)`);
-    console.log(`   ⏸️  Setting 48-hour block on all comments + replies`);
+    console.log(`   🚫 Comment NOT found in DOM after 3 retries`);
+    console.log(`   🛑 Likely silent block — setting 48h cooldown`);
     console.log(``);
 
     return {

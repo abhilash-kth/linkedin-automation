@@ -1,3 +1,4 @@
+// server/config/config.js
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -23,8 +24,8 @@ export default {
   minDelayBetweenMessages: 8,
   maxDelayBetweenMessages: 25,
   businessHours: {
-    start: parseInt(process.env.BUSINESS_HOURS_START) || 9,
-    end: parseInt(process.env.BUSINESS_HOURS_END) || 18,
+    start: parseInt(process.env.BUSINESS_HOURS_START) || 10,  // ← Changed from 9 to 10
+    end: parseInt(process.env.BUSINESS_HOURS_END) || 18,      // ← Kept at 18 (6 PM)
   },
   paths: {
     profiles: "./profiles",
