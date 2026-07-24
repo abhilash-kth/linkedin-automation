@@ -20,7 +20,7 @@ import { loadEmbedder } from "../services/ai/embedding.service.js";
 import { classifyPost } from "../services/ai/lead-classifier.service.js";
 import {
   generateComment,
-  canComment,
+  canCommentGlobal,
   incrementCommentCount,
   getRemainingComments,
 } from "../services/ai/comment-generator.service.js";
@@ -31,33 +31,31 @@ import {
   hasCommentedOnPost,
   shouldSkipLead,
 } from "../services/database/lead-db.service.js";
-import { randomDelay } from "../helpers/human-behavior.helper.js";
 import {
   getCommentBlockStatus,
   setCommentBlock,
   printBlockBanner,
 } from "../helpers/comment-limit-tracker.helper.js";
+import { randomDelay } from "../helpers/human-behavior.helper.js";
+import { connectDB } from "../services/database/mongodb.service.js";
 
 const SIMILARITY_THRESHOLD_PERCENT = 40;
 const MIN_DAYS_BETWEEN_LEAD_ACTIONS = 7;
 
-// ═══ COMMENT SAFETY CONFIG ═══
-// LinkedIn blocks accounts that comment too aggressively.
-// Keep these SAFE to avoid the 48-hour block.
-const COMMENT_COOLDOWN_MIN_SEC = 180; // 3 minutes minimum between posts
-const COMMENT_COOLDOWN_MAX_SEC = 300; // 5 minutes maximum
-const KEYWORD_COOLDOWN_MIN_SEC = 120; // 2 minutes between keywords
-const KEYWORD_COOLDOWN_MAX_SEC = 240; // 4 minutes between keywords
+const COMMENT_COOLDOWN_MIN_SEC = 180;
+const COMMENT_COOLDOWN_MAX_SEC = 300;
+const KEYWORD_COOLDOWN_MIN_SEC = 120;
+const KEYWORD_COOLDOWN_MAX_SEC = 240;
+
+// Delay between posts when NOT commenting (still saving lead)
+const NO_COMMENT_POST_DELAY_MIN = 15000;
+const NO_COMMENT_POST_DELAY_MAX = 30000;
 
 export async function discoverLeads(accountId, actuallyComment = false) {
   console.log(
     `\n╔═══════════════════════════════════════════════════════════╗`,
   );
-  console.log(`║  DISCOVERY (v4 - Multi-Embedding Classification)           ║`);
-  console.log(`║  Account: ${accountId.padEnd(48)}║`);
-  console.log(
-    `║  Threshold: ${String(SIMILARITY_THRESHOLD_PERCENT).padEnd(3)}% top match                                    ║`,
-  );
+  console.log(`║  DISCOVERY — Account: ${accountId.padEnd(36)}║`);
   console.log(
     `║  Mode: ${(actuallyComment ? "REAL COMMENTS" : "SAFE (typed only)").padEnd(51)}║`,
   );
@@ -65,29 +63,33 @@ export async function discoverLeads(accountId, actuallyComment = false) {
     `╚═══════════════════════════════════════════════════════════╝\n`,
   );
 
-  // ═══ STEP 0: Check if commenting is blocked for this account ═══
+  await connectDB();
+
+  // ═══ STEP 0: Check comment block ═══
+  let commentingAllowed = actuallyComment;
   if (actuallyComment) {
-    const blockStatus = await getCommentBlockStatus(accountId);
-    if (blockStatus.blocked) {
-      printBlockBanner(
-        accountId,
-        blockStatus.hoursRemaining,
-        blockStatus.blockedUntil,
-      );
-      console.log(`⏸️  Discovery mode: DISABLED (comment block active)`);
-      console.log(`   Reason: ${blockStatus.reason}`);
+    const commentStatus = await canCommentGlobal(accountId);
+    if (!commentStatus.allowed) {
+      if (commentStatus.reason === "blocked_48h") {
+        printBlockBanner(
+          accountId,
+          commentStatus.hoursRemaining,
+          commentStatus.blockedUntil,
+        );
+        console.log(
+          `⏸️  Commenting DISABLED — but discovery continues (save leads only)`,
+        );
+      } else {
+        console.log(
+          `⛔ Daily comment limit reached (${getRemainingComments()} remaining)`,
+        );
+      }
+      commentingAllowed = false;
+    } else {
       console.log(
-        `   Blocked at: ${new Date(blockStatus.blockedAt).toLocaleString("en-US")}`,
+        `✅ Comment status: OK (${commentStatus.remaining} remaining today)\n`,
       );
-      console.log(
-        `\n💡 To manually unblock (only if you're SURE LinkedIn cleared it):`,
-      );
-      console.log(
-        `   Delete: data/comment-block-state.json OR remove the "${accountId}" entry\n`,
-      );
-      return;
     }
-    console.log(`✅ Comment block status: OK (not blocked)\n`);
   }
 
   console.log(`🧠 Preloading Xenova model...`);
@@ -101,9 +103,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
   }
   console.log(`✅ ${keywordVectors.length} keywords loaded`);
 
-  console.log(
-    `\n🎯 Loading requirement embeddings (ideal customer profiles)...`,
-  );
+  console.log(`\n🎯 Loading requirement embeddings...`);
   const requirementEmbeddings = await getAllRequirementEmbeddings();
   if (requirementEmbeddings.length === 0) {
     console.log(
@@ -114,10 +114,9 @@ export async function discoverLeads(accountId, actuallyComment = false) {
   console.log(
     `✅ ${requirementEmbeddings.length} requirement embeddings loaded`,
   );
-  requirementEmbeddings.forEach((r, i) => {
-    console.log(`   ${i + 1}. ${r.label}`);
-  });
-  console.log(``);
+  requirementEmbeddings.forEach((r, i) =>
+    console.log(`   ${i + 1}. ${r.label}`),
+  );
 
   const { context, page } = await launchBrowser(accountId);
 
@@ -138,11 +137,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
       return;
     }
 
-    let commentBlocked = false; // set to true if rate limit hits mid-run
-
     for (let kIdx = 0; kIdx < keywordVectors.length; kIdx++) {
-      if (commentBlocked) break;
-
       const kw = keywordVectors[kIdx];
 
       console.log(`\n${"═".repeat(63)}`);
@@ -150,12 +145,6 @@ export async function discoverLeads(accountId, actuallyComment = false) {
         `🔑 KEYWORD ${kIdx + 1}/${keywordVectors.length}: "${kw.keyword}"`,
       );
       console.log("═".repeat(63));
-
-      if (!canComment()) {
-        console.log(`\n⛔ Daily comment limit reached\n`);
-        break;
-      }
-      console.log(`💬 Comments remaining today: ${getRemainingComments()}\n`);
 
       const posts = await searchPostsByKeyword(page, kw.keyword);
       stats.postsScanned += posts.length;
@@ -165,15 +154,11 @@ export async function discoverLeads(accountId, actuallyComment = false) {
         continue;
       }
 
+      console.log(`   📊 Found ${posts.length} posts — processing each...\n`);
+
       for (let pIdx = 0; pIdx < posts.length; pIdx++) {
-        if (commentBlocked) break;
-
-        if (!canComment()) {
-          console.log(`\n⛔ Daily limit reached\n`);
-          break;
-        }
-
         const post = posts[pIdx];
+
         console.log(`\n${"─".repeat(63)}`);
         console.log(`📌 POST ${pIdx + 1}/${posts.length}: ${post.authorName}`);
         console.log("─".repeat(63));
@@ -187,7 +172,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             continue;
           }
 
-          // ── 1. Expand + read post ──
+          // ── 1. Human: scroll to post, simulate reading ──
           const fullContent = await scrollToAndExpandPost(page, post.index);
           const contentToScore = fullContent || post.content;
 
@@ -196,7 +181,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             continue;
           }
 
-          // ── 2. Multi-embedding classification ──
+          // ── 2. Score the post ──
           const classification = await classifyPost(
             contentToScore,
             requirementEmbeddings,
@@ -212,7 +197,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
 
           if (topScore < SIMILARITY_THRESHOLD_PERCENT) {
             console.log(
-              `   ⏭️  Top score ${topScore}% < ${SIMILARITY_THRESHOLD_PERCENT}% — skip`,
+              `   ⏭️  Score ${topScore}% < ${SIMILARITY_THRESHOLD_PERCENT}% — skip`,
             );
             await randomDelay(2000, 4000);
             continue;
@@ -227,7 +212,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             topScore >= 75 ? "hot" : topScore >= 65 ? "warm" : "cold";
           stats.scoreDistribution[category]++;
 
-          // ── 3. Duplicate lead check ──
+          // ── 3. Duplicate check ──
           if (
             await shouldSkipLead(
               post.authorProfileUrl,
@@ -241,20 +226,16 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             continue;
           }
 
-          // ═══════════════════════════════════════════════════════
-          // STEP 4: Copy post URL
-          // ═══════════════════════════════════════════════════════
-          console.log(`\n🔗 STEP 4: Copy post URL`);
+          // ── 4. Copy post link ──
+          console.log(`\n🔗 STEP 4: Copy post link`);
           const rawPostUrl = await copyPostLink(page, post.index);
 
           if (!rawPostUrl) {
-            console.log(`   ⚠️  Failed to copy URL — skipping post`);
+            console.log(`   ⚠️  Failed to copy URL — skipping`);
             continue;
           }
 
-          // ═══════════════════════════════════════════════════════
-          // STEP 5: Duplicate post check
-          // ═══════════════════════════════════════════════════════
+          // ── 5. Duplicate post check ──
           if (await hasCommentedOnPost(rawPostUrl)) {
             console.log(`   ⚠️  Already commented on this post — skip`);
             stats.skippedAlreadyCommented++;
@@ -262,135 +243,67 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             continue;
           }
 
-          // ═══════════════════════════════════════════════════════
-          // STEP 6: Generate AI comment
-          // ═══════════════════════════════════════════════════════
-          console.log(`\n✍️  STEP 5: Generate AI comment`);
-          const commentText = await generateComment(
-            contentToScore,
-            post.authorName,
-          );
+          // ── 6. Comment (if allowed) ──
+          let commentText = null;
+          let wasCommented = false;
+          let commentBlockedThisRun = false;
 
-          if (!commentText) {
-            console.log(`   ⚠️  Comment generation failed — skipping`);
-            continue;
-          }
-
-          // ═══════════════════════════════════════════════════════
-          // STEP 7: Post comment INLINE
-          // ═══════════════════════════════════════════════════════
-          console.log(`\n💬 STEP 6: Post comment inline`);
-          const commentResult = await commentOnPost(
-            page,
-            post.index,
-            commentText,
-            actuallyComment,
-          );
-
-          // ═══ CRITICAL: Handle rate-limit signal ═══
-          if (commentResult.stopAllComments) {
-            console.log(``);
-            console.log(
-              `╔═══════════════════════════════════════════════════════════╗`,
-            );
-            console.log(
-              `║  🛑🛑🛑  COMMENT RATE LIMIT HIT  🛑🛑🛑                     ║`,
-            );
-            console.log(
-              `║  Comment did NOT appear in DOM after posting                ║`,
-            );
-            console.log(
-              `║  LinkedIn silently blocked our comment                      ║`,
-            );
-            console.log(
-              `║                                                            ║`,
-            );
-            console.log(
-              `║  🔒 Setting 48-hour block to protect account                ║`,
-            );
-            console.log(
-              `║  📊 Comments made this run: ${String(stats.newComments).padEnd(30)}║`,
-            );
-            console.log(
-              `╚═══════════════════════════════════════════════════════════╝`,
-            );
-            console.log(``);
-
-            const blockResult = await setCommentBlock(
-              accountId,
-              "comment_not_visible_in_dom",
-            );
-            if (blockResult) {
+          if (commentingAllowed) {
+            const commentCheck = await canCommentGlobal(accountId);
+            if (!commentCheck.allowed) {
               console.log(
-                `   ✅ Block set until: ${blockResult.blockedUntil.toLocaleString("en-US")}`,
+                `   ⛔ Comment limit hit — saving lead without comment`,
               );
-              console.log(
-                `   ⏸️  Next comment allowed after ${blockResult.hoursRemaining} hours\n`,
+              commentingAllowed = false;
+            } else {
+              console.log(`\n✍️  STEP 5: Generate AI comment`);
+              commentText = await generateComment(
+                contentToScore,
+                post.authorName,
               );
+
+              if (commentText) {
+                console.log(`\n💬 STEP 6: Post comment inline`);
+                const commentResult = await commentOnPost(
+                  page,
+                  post.index,
+                  commentText,
+                  true,
+                );
+
+                if (commentResult.stopAllComments) {
+                  console.log(`\n🛑 COMMENT RATE LIMIT — setting 48h block`);
+                  const blockResult = await setCommentBlock(
+                    accountId,
+                    "comment_not_visible_in_dom",
+                  );
+                  if (blockResult) {
+                    console.log(
+                      `   ✅ Block set until: ${blockResult.blockedUntil.toLocaleString("en-US")}`,
+                    );
+                  }
+                  commentingAllowed = false;
+                  commentBlockedThisRun = true;
+                  commentText = null;
+                } else if (commentResult.success) {
+                  incrementCommentCount();
+                  wasCommented = true;
+                  stats.newComments++;
+                  console.log(`   ✅ Comment posted!`);
+                }
+              }
             }
-
-            // Still save lead as "discovered" (comment blocked but lead is valid)
-            const leadDataNoComment = {
-              name: post.authorName,
-              profileUrl: post.authorProfileUrl,
-              title: post.authorHeadline || "",
-              headline: post.authorHeadline || "",
-              location: "",
-              email: null,
-              phone: null,
-              website: null,
-              discoveredFrom: "post",
-              searchKeyword: kw.keyword,
-              postContent: contentToScore.substring(0, 2000),
-              postUrl: rawPostUrl || "",
-              postTime: post.postTime || "",
-              conversionScore: topScore,
-              scoreCategory: category,
-              scoreReasons: classification.topMatches.map(
-                (m) => `${m.label}: ${m.score}%`,
-              ),
-              accountId,
-              status: "discovered",
-              commentPosted: false,        
-              commentText: null,
-              commentedAt: null,
-              lastProcessedAt: new Date(),
-              aiAnalysis: {
-                generatedComment: null,
-                topMatch: classification.topLabel,
-                topScore: topScore,
-                allScores: classification.allScores,
-                searchKeyword: kw.keyword,
-                blockedReason: "comment_rate_limit",
-              },
-            };
-
-            await upsertLead(leadDataNoComment);
-            console.log(`   💾 Saved lead as 'discovered' (comment blocked)`);
-
-            try {
-              await pushLeadToSheet(leadDataNoComment, null, classification);
-            } catch {}
-
-            commentBlocked = true;
-            break; // exit posts loop, then keywords loop will also exit
+          } else {
+            console.log(`   ⏸️  Commenting disabled — saving lead only`);
           }
 
-          if (commentResult.success && actuallyComment) {
-            incrementCommentCount();
-            stats.newComments++;
-          }
-
-          // ═══════════════════════════════════════════════════════
-          // STEP 8: Resolve URL AFTER commenting
-          // ═══════════════════════════════════════════════════════
+          // ── 7. Resolve URL ──
           let cleanPostUrl = rawPostUrl;
           if (
             rawPostUrl &&
             !rawPostUrl.includes("/feed/update/urn:li:activity:")
           ) {
-            console.log(`\n🔗 STEP 7: Resolving URL in background tab...`);
-
+            console.log(`\n🔗 STEP 7: Resolving URL...`);
             const resolverPage = await context.newPage();
             try {
               cleanPostUrl = await resolvePostUrl(resolverPage, rawPostUrl);
@@ -405,11 +318,7 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             }
           }
 
-          // ═══════════════════════════════════════════════════════
-          // STEP 9: Save lead to MongoDB
-          // ═══════════════════════════════════════════════════════
-          const wasCommented = commentResult.success && actuallyComment;
-
+          // ── 8. Save lead to MongoDB ──
           const leadData = {
             name: post.authorName,
             profileUrl: post.authorProfileUrl,
@@ -431,58 +340,67 @@ export async function discoverLeads(accountId, actuallyComment = false) {
             ),
             accountId,
             status: wasCommented ? "commented" : "discovered",
-
-            // ── FIX: These 3 fields now exist in schema and buildLeadRow reads them ──
-            commentPosted: wasCommented, // NEW — was missing from schema
-            commentText: wasCommented ? commentText : null, // NEW — was missing from schema
-            commentedAt: wasCommented ? new Date() : null, // NOW IN SCHEMA
-
+            commentPosted: wasCommented,
+            commentText: wasCommented ? commentText : null,
+            commentedAt: wasCommented ? new Date() : null,
             lastProcessedAt: new Date(),
             aiAnalysis: {
               generatedComment: wasCommented ? commentText : null,
               topMatch: classification.topLabel,
-              topScore: topScore,
+              topScore,
               allScores: classification.allScores,
               searchKeyword: kw.keyword,
+              ...(commentBlockedThisRun && {
+                blockedReason: "comment_rate_limit",
+              }),
             },
           };
 
           await upsertLead(leadData);
           console.log(`   💾 Saved to MongoDB (status: ${leadData.status})`);
 
+          // ── 9. Push to Google Sheet ──
           await pushLeadToSheet(
             leadData,
             wasCommented ? commentText : null,
             classification,
           );
           console.log(`   📊 Pushed to Google Sheets`);
-
           stats.leadsSaved++;
 
-          // Cooldown (LONGER to avoid LinkedIn rate limiting)
-          const cooldownMs =
-            COMMENT_COOLDOWN_MIN_SEC * 1000 +
-            Math.floor(
-              Math.random() *
-                (COMMENT_COOLDOWN_MAX_SEC - COMMENT_COOLDOWN_MIN_SEC) *
-                1000,
+          // ── 10. Cooldown before next post ──
+          if (wasCommented) {
+            // Longer cooldown after commenting to avoid rate limit
+            const cooldownMs =
+              COMMENT_COOLDOWN_MIN_SEC * 1000 +
+              Math.floor(
+                Math.random() *
+                  (COMMENT_COOLDOWN_MAX_SEC - COMMENT_COOLDOWN_MIN_SEC) *
+                  1000,
+              );
+            console.log(
+              `\n   ⏰ Cooling ${Math.floor(cooldownMs / 1000)}s (${Math.floor(cooldownMs / 60)}m) before next post...`,
             );
-          console.log(
-            `\n   ⏰ Cooling ${Math.floor(cooldownMs / 1000)}s (${Math.floor(cooldownMs / 60000)}m) before next post...`,
-          );
-          await new Promise((r) => setTimeout(r, cooldownMs));
+            await new Promise((r) => setTimeout(r, cooldownMs));
+          } else {
+            // Shorter delay when only saving lead
+            const shortDelay =
+              NO_COMMENT_POST_DELAY_MIN +
+              Math.floor(
+                Math.random() *
+                  (NO_COMMENT_POST_DELAY_MAX - NO_COMMENT_POST_DELAY_MIN),
+              );
+            console.log(
+              `\n   ⏰ Short delay ${Math.floor(shortDelay / 1000)}s before next post...`,
+            );
+            await new Promise((r) => setTimeout(r, shortDelay));
+          }
         } catch (err) {
           console.log(`   ❌ Post error: ${err.message}`);
         }
       }
 
-      // Break out of keyword loop if we hit the block
-      if (commentBlocked) {
-        console.log(`\n🛑 Stopping — comment block was set\n`);
-        break;
-      }
-
-      // Longer cooldown between keywords
+      // ── Cooldown between keywords ──
       const keywordCooldownMs =
         KEYWORD_COOLDOWN_MIN_SEC * 1000 +
         Math.floor(
@@ -496,18 +414,18 @@ export async function discoverLeads(accountId, actuallyComment = false) {
       await new Promise((r) => setTimeout(r, keywordCooldownMs));
     }
 
+    // ── Final Summary ──
     console.log(
       `\n╔═══════════════════════════════════════════════════════════╗`,
     );
     console.log(
       `║  DISCOVERY COMPLETE                                        ║`,
     );
-    console.log(`║  🔑 Keywords: ${String(keywordVectors.length).padEnd(44)}║`);
     console.log(
-      `║  📊 Posts scanned: ${String(stats.postsScanned).padEnd(39)}║`,
+      `║  📊 Posts scanned:    ${String(stats.postsScanned).padEnd(36)}║`,
     );
     console.log(
-      `║  🎯 High-score matches: ${String(stats.highScorePosts).padEnd(34)}║`,
+      `║  🎯 High-score:       ${String(stats.highScorePosts).padEnd(36)}║`,
     );
     console.log(
       `║  🔥 Hot: ${String(stats.scoreDistribution.hot).padEnd(49)}║`,
@@ -518,22 +436,18 @@ export async function discoverLeads(accountId, actuallyComment = false) {
     console.log(
       `║  ❄️  Cold: ${String(stats.scoreDistribution.cold).padEnd(48)}║`,
     );
-    console.log(`║  💬 New comments: ${String(stats.newComments).padEnd(40)}║`);
     console.log(
-      `║  ⏭️  Skipped (commented): ${String(stats.skippedAlreadyCommented).padEnd(33)}║`,
+      `║  💬 New comments:     ${String(stats.newComments).padEnd(36)}║`,
     );
     console.log(
-      `║  ⏭️  Skipped (duplicate): ${String(stats.skippedDuplicate).padEnd(33)}║`,
+      `║  ⏭️  Skipped (comm):  ${String(stats.skippedAlreadyCommented).padEnd(36)}║`,
     );
-    console.log(`║  💾 Leads saved: ${String(stats.leadsSaved).padEnd(41)}║`);
-    if (commentBlocked) {
-      console.log(
-        `║                                                            ║`,
-      );
-      console.log(
-        `║  🚫 COMMENT BLOCK SET — Wait 48 hours or switch account     ║`,
-      );
-    }
+    console.log(
+      `║  ⏭️  Skipped (dup):   ${String(stats.skippedDuplicate).padEnd(36)}║`,
+    );
+    console.log(
+      `║  💾 Leads saved:      ${String(stats.leadsSaved).padEnd(36)}║`,
+    );
     console.log(
       `╚═══════════════════════════════════════════════════════════╝\n`,
     );

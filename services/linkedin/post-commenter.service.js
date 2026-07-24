@@ -1441,6 +1441,7 @@
 //     console.log(`      Target comment ID: ${targetCommentId}`);
 //   }
 //   await fullCleanup(page);
+//
 
 //   try {
 //     // ═══════════════════════════════════════════════════════════
@@ -1679,7 +1680,6 @@
 //     console.log(
 //       `   👀 Reply button at (${finalBtnCoords.x}, ${finalBtnCoords.y})`,
 //     );
-
 //     // ═══════════════════════════════════════════════════════════
 //     // STEP 4: Mark existing editors as "old"
 //     // ═══════════════════════════════════════════════════════════
@@ -2298,7 +2298,6 @@ export async function commentOnPost(
     if (!commentBtnCoords) {
       console.log(`   ⚠️  Comment button not found for post ${postIndex}`);
 
-      // Debug: show what buttons exist
       const debug = await page.evaluate(
         ({ idx, tag, iconId }) => {
           const post = document.querySelector(`[${tag}="${idx}"]`);
@@ -2369,7 +2368,6 @@ export async function commentOnPost(
           const post = document.querySelector(`[${tag}="${idx}"]`);
           if (!post) return;
 
-          // Find by SVG icon
           const svgs = post.querySelectorAll(`svg[id="${iconId}"]`);
           for (const svg of svgs) {
             const btn = svg.closest("button");
@@ -2532,134 +2530,93 @@ export async function commentOnPost(
     await closeBlockingModals(page);
     await closeExtraTabs(page);
 
-    // ═══ STEP 8: STRICT verification ═══
-    // Wait for LinkedIn to actually process the comment
-    await randomDelay(2000, 3000);
+    // ═══════════════════════════════════════════════════════════════
+    // STEP 8: STRICT VERIFICATION
+    // Comment MUST appear in the post's DOM.
+    // Editor state (empty/gone) is NOT trusted — LinkedIn clears
+    // the editor even when silently blocking the comment (rate limit).
+    // If comment not found after 3 retries → rate limit hit → 48h block.
+    // ═══════════════════════════════════════════════════════════════
+    await randomDelay(4000, 6000);
 
-    const verification = await page.evaluate(
-      ({ editorSel, commentDisplaySels, expectedText, postTag, idx }) => {
-        const editor = document.querySelector(editorSel);
-        const editorGone = !editor;
-        const editorEmpty = editor
-          ? (editor.textContent || "").trim().length === 0
-          : true;
+    const searchText = commentText.substring(0, 30).toLowerCase().trim();
 
-        const searchText = expectedText.substring(0, 40).toLowerCase();
-        const displaySel = commentDisplaySels.join(", ");
+    let commentFound = false;
+    let lastCommentCount = 0;
+    let matchedVia = "";
 
-        // Look in the SPECIFIC post we commented on
-        const post = document.querySelector(`[${postTag}="${idx}"]`);
-        let foundInPost = false;
-        if (post) {
-          const commentsInPost = post.querySelectorAll(displaySel);
-          for (const c of commentsInPost) {
-            if ((c.textContent || "").toLowerCase().includes(searchText)) {
-              foundInPost = true;
-              break;
-            }
-          }
-        }
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      if (attempt > 0) {
+        console.log(
+          `   🔄 Retry ${attempt}/3: waiting for comment to appear in DOM...`,
+        );
+        await randomDelay(4000, 6000);
+      }
 
-        // Also look globally as fallback
-        const allComments = document.querySelectorAll(displaySel);
-        let foundGlobally = false;
-        for (const c of allComments) {
-          if ((c.textContent || "").toLowerCase().includes(searchText)) {
-            foundGlobally = true;
-            break;
-          }
-        }
-
-        return { editorGone, editorEmpty, foundInPost, foundGlobally };
-      },
-      {
-        editorSel: SELECTORS.commentComposer.activeEditorSelector,
-        commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
-        expectedText: commentText,
-        postTag: SELECTORS.postCard.tag,
-        idx: postIndex,
-      },
-    );
-
-    console.log(
-      `   📊 Verify: editorGone=${verification.editorGone}, editorEmpty=${verification.editorEmpty}, inPost=${verification.foundInPost}, global=${verification.foundGlobally}`,
-    );
-
-    await fullCleanup(page);
-
-    // STRICT: Only success if we can SEE our comment in the DOM
-    if (verification.foundInPost || verification.foundGlobally) {
-      console.log(`   ✅ Comment POSTED and VERIFIED in DOM!`);
-      return { success: true, action: "commented" };
-    }
-
-    // Comment not visible — do 2 more retries with waits before giving up
-    console.log(
-      `   ⏳ Comment not immediately visible — waiting for LinkedIn to render...`,
-    );
-
-    for (let retry = 1; retry <= 2; retry++) {
-      await randomDelay(4000, 6000);
-      console.log(`   🔄 Retry check ${retry}/2...`);
-
-      const retryCheck = await page.evaluate(
-        ({ commentDisplaySels, expectedText, postTag, idx }) => {
-          const searchText = expectedText.substring(0, 40).toLowerCase();
-          const displaySel = commentDisplaySels.join(", ");
-
-          // Check within the post
+      const check = await page.evaluate(
+        ({ postTag, idx, searchTxt, commentDisplaySels }) => {
           const post = document.querySelector(`[${postTag}="${idx}"]`);
-          if (post) {
-            const commentsInPost = post.querySelectorAll(displaySel);
-            for (const c of commentsInPost) {
-              if ((c.textContent || "").toLowerCase().includes(searchText)) {
-                return { found: true, location: "in_post" };
+          if (!post) return { found: false, count: 0, error: "no_post" };
+
+          // Search ONLY inside this specific post's DOM
+          for (const sel of commentDisplaySels) {
+            const els = post.querySelectorAll(sel);
+            for (const el of els) {
+              if ((el.textContent || "").toLowerCase().includes(searchTxt)) {
+                return { found: true, matchedSel: sel, count: 0 };
               }
             }
           }
 
-          // Check globally
-          const allComments = document.querySelectorAll(displaySel);
-          for (const c of allComments) {
-            if ((c.textContent || "").toLowerCase().includes(searchText)) {
-              return { found: true, location: "global" };
-            }
-          }
+          // Count comments in this post (for secondary detection)
+          const commentItems = post.querySelectorAll(
+            "article.comments-comment-entity, [class*='comments-comment-entity']",
+          );
 
-          return { found: false };
+          return { found: false, count: commentItems.length };
         },
         {
-          commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
-          expectedText: commentText,
           postTag: SELECTORS.postCard.tag,
           idx: postIndex,
+          searchTxt: searchText,
+          commentDisplaySels: SELECTORS.commentComposer.commentDisplaySelectors,
         },
       );
 
-      if (retryCheck.found) {
-        console.log(
-          `   ✅ Comment now visible in DOM (${retryCheck.location})!`,
-        );
-        await fullCleanup(page);
-        return { success: true, action: "commented" };
+      console.log(
+        `   📊 Verify [${attempt}]: found=${check.found}, comments in post=${check.count}${check.matchedSel ? `, via ${check.matchedSel}` : ""}`,
+      );
+
+      if (check.found) {
+        commentFound = true;
+        matchedVia = check.matchedSel;
+        break;
       }
+
+      lastCommentCount = check.count;
     }
 
-    // After 2 retries: comment STILL not visible = LinkedIn rate-limited us
+    await fullCleanup(page);
+
+    // ── SUCCESS: comment text found in post DOM ──
+    if (commentFound) {
+      console.log(
+        `   ✅ Comment VERIFIED — posted successfully (via ${matchedVia})`,
+      );
+      return { success: true, action: "commented" };
+    }
+
+    // ── FAILURE: comment NOT in DOM after all retries = RATE LIMIT ──
     console.log(``);
-    console.log(`   🚫🚫🚫 COMMENT RATE LIMIT DETECTED 🚫🚫🚫`);
-    console.log(
-      `   📊 Editor state: gone=${verification.editorGone}, empty=${verification.editorEmpty}`,
-    );
-    console.log(`   🛑 Comment did NOT appear in DOM after multiple checks`);
-    console.log(`   ⏸️  LinkedIn blocked the comment — must wait 48 hours`);
+    console.log(`   🚫🚫🚫 COMMENT NOT VISIBLE IN POST AFTER 3 RETRIES 🚫🚫🚫`);
+    console.log(`   🛑 LinkedIn silently blocked the comment (rate limit hit)`);
+    console.log(`   ⏸️  Setting 48-hour block on all comments + replies`);
     console.log(``);
 
-    await fullCleanup(page);
     return {
       success: false,
-      reason: "comment_rate_limited",
-      stopAllComments: true, // signal to controller
+      reason: "comment_not_visible_after_submit",
+      stopAllComments: true,
     };
   } catch (err) {
     console.log(`   ❌ Error: ${err.message}`);

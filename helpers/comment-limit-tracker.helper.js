@@ -16,6 +16,7 @@ export async function getCommentBlockStatus(accountId) {
     if (!entry || !entry.blockedUntil) {
       return { blocked: false };
     }
+    
 
     const blockedUntil = new Date(entry.blockedUntil);
     const now = new Date();

@@ -415,6 +415,11 @@ import {
   generateCommentReply,
   qualifyCommenterAsLead,
 } from "../services/ai/comment-reply-generator.service.js";
+// Add this import at the top
+import {
+  canCommentGlobal,
+  incrementCommentCount,
+} from "../services/ai/comment-generator.service.js";
 import {
   getOrCreateThread,
   addReplyToThread,
@@ -458,30 +463,26 @@ export async function processCommentReplies(accountId, actuallySend = false) {
 
   await connectDB();
 
-  // ═══ STEP 0: Check if commenting is blocked ═══
-  // Replies use the same LinkedIn rate limit as comments
+  // ═══ STEP 0: Check global comment/reply limit ═══
   if (actuallySend) {
-    const blockStatus = await getCommentBlockStatus(accountId);
-    if (blockStatus.blocked) {
-      printBlockBanner(
-        accountId,
-        blockStatus.hoursRemaining,
-        blockStatus.blockedUntil,
-      );
-      console.log(`⏸️  Reply mode: DISABLED (comment/reply block active)`);
-      console.log(`   Reason: ${blockStatus.reason}`);
-      console.log(
-        `   Blocked at: ${new Date(blockStatus.blockedAt).toLocaleString("en-US")}`,
-      );
-      console.log(
-        `\n💡 To manually unblock (only if you're SURE LinkedIn cleared it):`,
-      );
-      console.log(
-        `   Delete: data/comment-block-state.json OR remove the "${accountId}" entry\n`,
-      );
+    const commentStatus = await canCommentGlobal(accountId);
+    if (!commentStatus.allowed) {
+      if (commentStatus.reason === "blocked_48h") {
+        printBlockBanner(
+          accountId,
+          commentStatus.hoursRemaining,
+          commentStatus.blockedUntil,
+        );
+        console.log(`⏸️  Reply mode: DISABLED (48h block active)`);
+      } else {
+        console.log(`⛔ Daily comment limit reached — no replies today`);
+        console.log(`   Total allowed: 8 (posts + replies combined)`);
+      }
       return;
     }
-    console.log(`✅ Comment/reply block status: OK (not blocked)\n`);
+    console.log(
+      `✅ Global comment status: OK (${commentStatus.remaining} remaining)\n`,
+    );
   }
 
   const commentedLeads = await Lead.find({
